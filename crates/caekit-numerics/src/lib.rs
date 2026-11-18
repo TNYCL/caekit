@@ -22,6 +22,44 @@ impl Default for LinearSettings {
     }
 }
 
+#[derive(Debug)]
+pub struct InvalidLinearSetting {
+    pub field: &'static str,
+    pub message: &'static str,
+}
+
+impl std::fmt::Display for InvalidLinearSetting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.field, self.message)
+    }
+}
+
+impl std::error::Error for InvalidLinearSetting {}
+
+impl LinearSettings {
+    pub fn validate(self) -> Result<(), InvalidLinearSetting> {
+        if !(0.0 < self.relative_residual_tolerance && self.relative_residual_tolerance < 1.0) {
+            return Err(InvalidLinearSetting {
+                field: "relative_residual_tolerance",
+                message: "must be greater than zero and less than one",
+            });
+        }
+        if !self.absolute_residual_tolerance.is_finite() || self.absolute_residual_tolerance < 0.0 {
+            return Err(InvalidLinearSetting {
+                field: "absolute_residual_tolerance",
+                message: "must be nonnegative and finite",
+            });
+        }
+        if self.max_iterations == 0 {
+            return Err(InvalidLinearSetting {
+                field: "max_iterations",
+                message: "must be positive",
+            });
+        }
+        Ok(())
+    }
+}
+
 /// Stop reasons for a numerical stage. A failed stage retains its convergence evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,19 +84,26 @@ pub struct Convergence {
 /// Sparse triplet accumulation with deterministic row and column ordering.
 pub struct SparseAssembly {
     rows: Vec<BTreeMap<usize, f64>>,
+    invalid: bool,
 }
 
 impl SparseAssembly {
     pub fn new(size: usize) -> Self {
         Self {
             rows: vec![BTreeMap::new(); size],
+            invalid: false,
         }
     }
 
     pub fn add(&mut self, row: usize, column: usize, entry: f64) {
+        if row >= self.rows.len() || column >= self.rows.len() {
+            self.invalid = true;
+            return;
+        }
         *self.rows[row].entry(column).or_default() += entry;
     }
 
+    /// Invalid indices, dimensions or settings produce a numerical breakdown at iteration zero.
     pub fn solve(
         self,
         rhs: &[f64],
@@ -66,8 +111,20 @@ impl SparseAssembly {
         stage: &str,
         residual_unit: &str,
     ) -> (Vec<f64>, Convergence) {
-        let matrix = CsrMatrix::from_rows(self.rows);
-        pcg(&matrix, rhs, settings, stage, residual_unit)
+        let stats = Convergence {
+            stage: stage.to_owned(),
+            algorithm: "jacobi_preconditioned_conjugate_gradient".to_owned(),
+            stop_reason: StopReason::NumericalBreakdown,
+            iterations: 0,
+            residual_unit: residual_unit.to_owned(),
+            residual_threshold: None,
+            residual_l2_history: Vec::new(),
+            final_true_residual_l2: None,
+        };
+        if self.invalid || rhs.len() != self.rows.len() || settings.validate().is_err() {
+            return (vec![0.0; self.rows.len()], stats);
+        }
+        pcg(&CsrMatrix::from_rows(self.rows), rhs, settings, stats)
     }
 }
 
@@ -123,20 +180,9 @@ fn pcg(
     matrix: &CsrMatrix,
     rhs: &[f64],
     settings: LinearSettings,
-    stage: &str,
-    residual_unit: &str,
+    mut stats: Convergence,
 ) -> (Vec<f64>, Convergence) {
     let mut x = vec![0.0; rhs.len()];
-    let mut stats = Convergence {
-        stage: stage.to_owned(),
-        algorithm: "jacobi_preconditioned_conjugate_gradient".to_owned(),
-        stop_reason: StopReason::NumericalBreakdown,
-        iterations: 0,
-        residual_unit: residual_unit.to_owned(),
-        residual_threshold: None,
-        residual_l2_history: Vec::new(),
-        final_true_residual_l2: None,
-    };
     if !rhs.iter().all(|x| x.is_finite())
         || !matrix.entries.iter().all(|x| x.is_finite())
         || !matrix.diagonal.iter().all(|&d| d > 0.0)
@@ -253,19 +299,26 @@ impl ConstrainedSystem {
         let mut rhs = Vec::new();
         let reduced_index = prescribed
             .iter()
-            .zip(loads)
-            .map(|(value, &load)| {
+            .enumerate()
+            .map(|(i, value)| {
                 if value.is_some() {
                     None
                 } else {
                     let index = rhs.len();
-                    rhs.push(load);
+                    rhs.push(loads.get(i).copied().unwrap_or(0.0));
                     Some(index)
                 }
             })
             .collect();
+        let mut reduced = SparseAssembly::new(rhs.len());
+        reduced.invalid = loads.len() != prescribed.len()
+            || !prescribed
+                .iter()
+                .flatten()
+                .chain(loads)
+                .all(|v| v.is_finite());
         Self {
-            reduced: SparseAssembly::new(rhs.len()),
+            reduced,
             rhs,
             prescribed,
             reduced_index,
@@ -273,6 +326,13 @@ impl ConstrainedSystem {
     }
 
     pub fn add(&mut self, row: usize, column: usize, entry: f64) {
+        if row >= self.reduced_index.len()
+            || column >= self.reduced_index.len()
+            || !entry.is_finite()
+        {
+            self.reduced.invalid = true;
+            return;
+        }
         if let Some(i) = self.reduced_index[row] {
             match self.reduced_index[column] {
                 Some(j) => self.reduced.add(i, j, entry),

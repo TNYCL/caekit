@@ -56,3 +56,65 @@ fn distinguishes_an_iteration_limit_from_a_numerical_breakdown() {
     assert_eq!(invalid.stop_reason, StopReason::NumericalBreakdown);
     assert!(invalid.final_true_residual_l2.is_none());
 }
+
+#[test]
+fn inconsistent_dimensions_and_indices_never_report_convergence() {
+    for rhs in [&[][..], &[0.0][..], &[0.0; 3][..]] {
+        let (_, trace) = two_variable_system().solve(rhs, LinearSettings::default(), "test", "1");
+        assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    }
+    for (row, column) in [(0, 2), (2, 0)] {
+        let mut system = two_variable_system();
+        system.add(row, column, 1.0);
+        let (_, trace) = system.solve(&[0.0; 2], LinearSettings::default(), "test", "1");
+        assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    }
+    for loads in [&[][..], &[0.0; 3][..]] {
+        let system = ConstrainedSystem::new(vec![Some(1.0), None], loads);
+        let (_, trace) = system.solve(LinearSettings::default(), "test", "1");
+        assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    }
+    let mut system = ConstrainedSystem::new(vec![Some(0.0)], &[0.0]);
+    system.add(0, 1, 1.0);
+    let (_, trace) = system.solve(LinearSettings::default(), "test", "1");
+    assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+}
+
+#[test]
+fn fully_prescribed_systems_still_check_for_nonfinite_input() {
+    for (displacement, load, stiffness) in [
+        (f64::NAN, 0.0, 1.0),
+        (0.0, f64::INFINITY, 1.0),
+        (0.0, 0.0, f64::NAN),
+    ] {
+        let mut system = ConstrainedSystem::new(vec![Some(displacement)], &[load]);
+        system.add(0, 0, stiffness);
+        let (_, trace) = system.solve(LinearSettings::default(), "test", "1");
+        assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    }
+}
+
+#[test]
+fn invalid_stopping_settings_cannot_accept_the_zero_iterate() {
+    for settings in [
+        LinearSettings {
+            relative_residual_tolerance: 1.0,
+            ..Default::default()
+        },
+        LinearSettings {
+            absolute_residual_tolerance: f64::INFINITY,
+            ..Default::default()
+        },
+        LinearSettings {
+            relative_residual_tolerance: f64::NAN,
+            ..Default::default()
+        },
+        LinearSettings {
+            max_iterations: 0,
+            ..Default::default()
+        },
+    ] {
+        let (_, trace) = two_variable_system().solve(&[0.0, 0.0], settings, "test", "1");
+        assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    }
+}
