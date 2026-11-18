@@ -1,5 +1,24 @@
 # CAEKit
+
 A Rust project for open-source multiphysics engineering simulation.
+
+## Run a reference case
+
+Install Rust 1.85 or newer, then run the model through the CLI.
+
+```sh
+cargo run --locked -- check examples/axial_bar.json
+cargo run --locked -- run examples/axial_bar.json
+cargo test --locked
+```
+
+The [axial bar](docs/physics/axial-bar.md) example returns a 0.05 mm extension
+for a 1 kN load. The JSON report includes displacements, stresses, reactions,
+the force balance and linear convergence information. The Rust library exposes
+the same model reader and solver through `Model::from_json` and `solve`.
+
+See the [model and result format](docs/model.md) and
+[source and data provenance](docs/provenance.md).
 
 ## License
 

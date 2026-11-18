@@ -1,0 +1,127 @@
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+use crate::Error;
+use crate::error::nonempty;
+use crate::linear::LinearSettings;
+use crate::mesh::{GeometryRevision, MeshMetrics};
+use crate::physics::axial_bar::AxialBar;
+use crate::result::Output;
+
+pub const MODEL_SCHEMA_VERSION: u32 = 1;
+
+/// Input to every execution surface. Hardware and precision selection are execution concerns.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Model {
+    pub schema_version: u32,
+    pub name: String,
+    pub units: Units,
+    pub physics: Physics,
+    #[serde(default)]
+    pub linear_solver: LinearSettings,
+    pub outputs: Vec<Output>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Units {
+    Si,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Physics {
+    AxialBar(AxialBar),
+}
+
+impl Physics {
+    pub(crate) fn geometry(&self) -> Vec<&GeometryRevision> {
+        match self {
+            Self::AxialBar(case) => vec![&case.geometry.identity],
+        }
+    }
+
+    pub(crate) fn supported_outputs(&self) -> &'static [Output] {
+        match self {
+            Self::AxialBar(_) => AxialBar::OUTPUTS,
+        }
+    }
+}
+
+/// Identifies the origin and terms of the property values used in a model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialSource {
+    pub citation: String,
+    pub usage_terms: String,
+}
+
+impl MaterialSource {
+    pub(crate) fn validate(&self, path: &str) -> Result<(), Error> {
+        nonempty(&format!("{path}.citation"), &self.citation)?;
+        nonempty(&format!("{path}.usage_terms"), &self.usage_terms)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelCheck {
+    pub model_schema_version: u32,
+    pub meshes: Vec<MeshMetrics>,
+}
+
+impl Model {
+    /// Reads a version 1 document and checks all geometry, mesh, conditions, and output requests.
+    pub fn from_json(bytes: &[u8]) -> Result<Self, Error> {
+        #[derive(Deserialize)]
+        struct Header {
+            schema_version: u32,
+        }
+
+        let header: Header = serde_json::from_slice(bytes)?;
+        check_version(header.schema_version)?;
+        let model: Self = serde_json::from_slice(bytes)?;
+        model.validate()?;
+        Ok(model)
+    }
+
+    /// Checks a deserialized or programmatically built model.
+    pub fn validate(&self) -> Result<ModelCheck, Error> {
+        check_version(self.schema_version)?;
+        nonempty("name", &self.name)?;
+        self.linear_solver.validate()?;
+
+        if self.outputs.is_empty() {
+            return Err(Error::invalid("outputs", "request at least one quantity"));
+        }
+        let mut seen = BTreeSet::new();
+        for (i, output) in self.outputs.iter().enumerate() {
+            let path = format!("outputs[{i}]");
+            if !self.physics.supported_outputs().contains(output) {
+                return Err(Error::invalid(
+                    path,
+                    "quantity is unavailable for this physics",
+                ));
+            }
+            if !seen.insert(output) {
+                return Err(Error::invalid(path, "duplicate quantity"));
+            }
+        }
+
+        let meshes = match &self.physics {
+            Physics::AxialBar(case) => vec![case.validate()?],
+        };
+        Ok(ModelCheck {
+            model_schema_version: self.schema_version,
+            meshes,
+        })
+    }
+}
+
+fn check_version(version: u32) -> Result<(), Error> {
+    if version == MODEL_SCHEMA_VERSION {
+        Ok(())
+    } else {
+        Err(Error::UnsupportedModelVersion(version))
+    }
+}
