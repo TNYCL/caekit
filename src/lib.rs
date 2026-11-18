@@ -19,10 +19,10 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
     model.validate_request()?;
     let (meshes, mut solution) = match &model.physics {
         Physics::AxialBar(case) => (vec![case.validate()?], case.solve(model.linear_solver)?),
-        Physics::ElasticSolid(case) => (
-            vec![case.validate()?],
-            case.solve(model.linear_solver, &model.outputs)?,
-        ),
+        Physics::ElasticSolid(case) => {
+            let (mesh, solution) = case.solve_with_metrics(model.linear_solver, &model.outputs)?;
+            (vec![mesh], solution)
+        }
         Physics::LaminarChannel(case) => (
             vec![case.validate("physics")?],
             case.solve(model.linear_solver)?,
@@ -32,6 +32,10 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
             case.solve(model.linear_solver, &model.outputs)?,
         ),
         Physics::HeatConduction(case) => {
+            let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
+            (vec![mesh], solution)
+        }
+        Physics::ThermoelasticSolid(case) => {
             let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
             (vec![mesh], solution)
         }

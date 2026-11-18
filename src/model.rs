@@ -9,6 +9,7 @@ use crate::physics::{
     elastic_solid::ElasticSolid,
     heat_conduction::{HeatConduction, SolidThermal},
     laminar_channel::LaminarChannel,
+    thermoelastic_solid::ThermoelasticSolid,
 };
 use caekit_mesh::{GeometryRevision, MeshMetrics};
 use caekit_numerics::LinearSettings;
@@ -43,6 +44,7 @@ pub enum Physics {
     CoolingChannel(Box<CoolingChannel>),
     ElasticSolid(Box<ElasticSolid>),
     HeatConduction(Box<HeatConduction>),
+    ThermoelasticSolid(Box<ThermoelasticSolid>),
 }
 
 impl Physics {
@@ -53,6 +55,7 @@ impl Physics {
             Self::LaminarChannel(case) => vec![&case.geometry.identity],
             Self::CoolingChannel(case) => vec![&case.flow.geometry.identity, &case.wall.identity],
             Self::HeatConduction(case) => vec![&case.geometry],
+            Self::ThermoelasticSolid(case) => vec![&case.geometry],
         }
     }
 
@@ -62,6 +65,9 @@ impl Physics {
             Self::AxialBar(_) => AxialBar::OUTPUTS.contains(&output),
             Self::LaminarChannel(_) => LaminarChannel::OUTPUTS.contains(&output),
             Self::HeatConduction(_) => SolidThermal::OUTPUTS.contains(&output),
+            Self::ThermoelasticSolid(_) => {
+                SolidThermal::OUTPUTS.contains(&output) || ElasticSolid::OUTPUTS.contains(&output)
+            }
             Self::CoolingChannel(_) => {
                 LaminarChannel::OUTPUTS.contains(&output)
                     || CoolingChannel::THERMAL_OUTPUTS.contains(&output)
@@ -100,6 +106,7 @@ impl Model {
             Physics::LaminarChannel(case) => vec![case.validate("physics")?],
             Physics::CoolingChannel(case) => case.validate()?,
             Physics::HeatConduction(case) => vec![case.validate()?],
+            Physics::ThermoelasticSolid(case) => vec![case.validate()?],
         };
         Ok(ModelCheck {
             model_schema_version: self.schema_version,
