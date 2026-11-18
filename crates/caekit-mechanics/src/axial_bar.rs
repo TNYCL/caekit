@@ -3,10 +3,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::{AxisFrame, Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
+use caekit_mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason};
 use caekit_types::error::{finite, nonempty, positive};
 use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
+use caekit_types::{Error, MaterialSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -50,7 +51,7 @@ impl BarBoundary {
 }
 
 impl AxialBar {
-    pub(crate) const OUTPUTS: &[Output] = &[
+    pub const OUTPUTS: &[Output] = &[
         Output::AxialDisplacement,
         Output::AxialStress,
         Output::EndDisplacement,
@@ -58,7 +59,7 @@ impl AxialBar {
     ];
     const METHOD: &str = "static_small_strain_axial_bar_p1_fem";
 
-    pub(crate) fn validate(&self) -> Result<MeshMetrics, Error> {
+    pub fn validate(&self) -> Result<MeshMetrics, Error> {
         self.geometry
             .identity
             .validate("physics.geometry.identity")?;
@@ -116,7 +117,8 @@ impl AxialBar {
         Ok(mesh)
     }
 
-    pub(crate) fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
+    /// Solve a case accepted by `validate` with valid linear solver settings.
+    pub fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
         let vertices = &self.mesh.vertices_m;
         let mut prescribed = vec![None; vertices.len()];
         let mut loads = vec![0.0; vertices.len()];

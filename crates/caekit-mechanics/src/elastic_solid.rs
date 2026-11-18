@@ -2,13 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, GeometryRevision, MaterialSource, MeshMetrics, TetraMesh};
 use caekit_mesh::tetra::{Tet, TetraTopology, cross, dot, subtract};
+use caekit_mesh::{GeometryRevision, MeshMetrics, TetraMesh};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason, norm};
 use caekit_types::error::{finite, nonempty, positive};
 use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
+use caekit_types::{Error, MaterialSource};
 
-use super::laminar_channel::Pressure;
+use caekit_types::Pressure;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,7 +100,7 @@ impl Lame {
 }
 
 impl ElasticSolid {
-    pub(crate) const OUTPUTS: &[Output] = &[
+    pub const OUTPUTS: &[Output] = &[
         Output::DisplacementVector,
         Output::CauchyStress,
         Output::VonMisesStress,
@@ -108,7 +109,7 @@ impl ElasticSolid {
     ];
     const METHOD: &str = "static_small_strain_isotropic_p1_tetrahedral_fem";
 
-    pub(crate) fn validate(&self) -> Result<MeshMetrics, Error> {
+    pub fn validate(&self) -> Result<MeshMetrics, Error> {
         let topology = self.mesh.check("physics.mesh")?;
         self.geometry.validate("physics.geometry")?;
         nonempty("physics.material.id", &self.material.id)?;
@@ -208,7 +209,8 @@ impl ElasticSolid {
         Ok(values)
     }
 
-    pub(crate) fn solve(
+    /// Solve a case accepted by `validate` with valid linear solver settings.
+    pub fn solve(
         &self,
         settings: LinearSettings,
         outputs: &[Output],
