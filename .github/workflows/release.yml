@@ -1,0 +1,413 @@
+name: Release
+
+# A pushed tag vX.Y.Z builds and tests every artifact, waits for approval on the `release`
+# environment, then publishes to crates.io, PyPI (caekit) and npm (caekit-wasm) and creates
+# the GitHub release with the command-line archives. Run by hand (workflow_dispatch), it
+# builds and tests everything and publishes nothing. Setup and checklist: docs/RELEASING.md.
+#
+# Every action is pinned to a commit SHA; the comment names the release it points at.
+# Release builds deliberately use no caches.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup toolchain install stable --profile minimal
+      - name: Version, tag, CHANGELOG section, package files and licence copies
+        id: meta
+        run: |
+          version=$(node scripts/release.mjs version)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            node scripts/release.mjs check --tag "$GITHUB_REF_NAME"
+            # Publish only commits that are on master.
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/master \
+              || { echo "::error::$GITHUB_REF_NAME does not point at a commit on master"; exit 1; }
+            publish=true
+          else
+            node scripts/release.mjs check
+            publish=false
+          fi
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          {
+            echo "version=$version"
+            echo "publish=$publish"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "caekit $version: publish=$publish prerelease=$prerelease" >> "$GITHUB_STEP_SUMMARY"
+      - run: node scripts/check-docs.mjs
+      - run: cargo +stable test --workspace --exclude caekit-py --exclude caekit-wasm --locked
+
+  crates:
+    name: crates.io packages
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup toolchain install stable --profile minimal
+      - name: Package and build every publishable crate from its packaged sources
+        run: node scripts/release.mjs publish-crates --dry-run
+
+  wheels:
+    name: wheel (${{ matrix.platform }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest, target: x86_64, test: true }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, test: true }
+          - { platform: macos-arm64, os: macos-latest, target: aarch64, test: true }
+          # Cross-compiled on the Apple Silicon runner, so it is not imported here.
+          - { platform: macos-x86_64, os: macos-latest, target: x86_64, test: false }
+          - { platform: windows-x64, os: windows-latest, target: x64, test: true }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          args: --release --locked --out dist
+          working-directory: crates/caekit-py
+          manylinux: auto
+      - name: Install the wheel and run pytest
+        if: matrix.test
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pytest
+          python -m pip install --no-index --find-links crates/caekit-py/dist caekit
+          python -m pytest crates/caekit-py/tests -q
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.platform }}
+          path: crates/caekit-py/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: sdist
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: crates/caekit-py
+      - run: rustup toolchain install stable --profile minimal
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Build from the sdist alone and import it
+        run: |
+          python -m pip install crates/caekit-py/dist/*.tar.gz
+          python -c "import caekit; print('caekit', caekit.__version__)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdist
+          path: crates/caekit-py/dist/*.tar.gz
+          if-no-files-found: error
+
+  npm:
+    name: npm package
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+      - name: Install the prebuilt wasm-bindgen CLI that matches Cargo.lock
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/[^0-9.]/, "", $0); print; exit}' Cargo.lock)
+          mkdir -p crates/caekit-wasm/.tools
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-x86_64-unknown-linux-musl.tar.gz" \
+            | tar xz -C crates/caekit-wasm/.tools
+      - name: Build the web and Node glue and the npm package folder
+        run: node crates/caekit-wasm/build.mjs --check-size
+      - run: node --test "crates/caekit-wasm/tests/*_test.mjs"
+      - name: Pack
+        working-directory: crates/caekit-wasm/npm
+        run: npm pack
+      - name: Install the tarball and test every entry point
+        run: |
+          smoke="$RUNNER_TEMP/npm-smoke"
+          mkdir -p "$smoke"
+          cp crates/caekit-wasm/tests/package_smoke.mjs "$smoke/"
+          cd "$smoke"
+          npm init -y > /dev/null
+          npm install "$GITHUB_WORKSPACE"/crates/caekit-wasm/npm/caekit-wasm-*.tgz
+          node package_smoke.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: crates/caekit-wasm/npm/caekit-wasm-*.tgz
+          if-no-files-found: error
+
+  cli:
+    name: CLI (${{ matrix.target }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # musl: static binaries that run on any Linux distribution.
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, run: true }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, run: true }
+          - { os: macos-latest, target: aarch64-apple-darwin, run: true }
+          # Cross-compiled on the Apple Silicon runner, so it is not run here.
+          - { os: macos-latest, target: x86_64-apple-darwin, run: false }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, run: true }
+    env:
+      CARGO_PROFILE_RELEASE_STRIP: symbols
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo +stable build -p caekit-cli --release --locked --target ${{ matrix.target }}
+      - name: Run the binary on a reference model
+        if: matrix.run
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/caekit"
+          "$bin" --version
+          "$bin" check examples/elastic_solid.json
+          "$bin" run examples/axial_bar.json > report.json
+          grep -q '"stop_reason": "converged"' report.json
+      - name: Package
+        shell: bash
+        run: |
+          target=${{ matrix.target }}
+          name="caekit-$target"
+          ext=""
+          case "$target" in *windows*) ext=".exe" ;; esac
+          mkdir "$name"
+          cp "target/$target/release/caekit$ext" LICENSE-MIT LICENSE-APACHE "$name/"
+          cp crates/caekit-cli/README.md "$name/README.md"
+          if [ -n "$ext" ]; then 7z a "$name.zip" "$name" > /dev/null; else tar czf "$name.tar.gz" "$name"; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-${{ matrix.target }}
+          path: |
+            caekit-*.zip
+            caekit-*.tar.gz
+          if-no-files-found: error
+
+  cli-wasi:
+    name: CLI (wasm32-wasip1)
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup toolchain install stable --profile minimal --target wasm32-wasip1
+      - run: |
+          cargo +stable build -p caekit-cli --release --locked
+          cargo +stable build -p caekit-cli --release --locked --target wasm32-wasip1
+      - name: Compare the WASI module with the native binary on the saved models
+        run: node scripts/verify-reference-cases.mjs target/release/caekit target/wasm32-wasip1/release/caekit.wasm
+      - name: Package
+        run: |
+          name=caekit-wasm32-wasip1
+          mkdir "$name"
+          cp target/wasm32-wasip1/release/caekit.wasm LICENSE-MIT LICENSE-APACHE "$name/"
+          cp crates/caekit-cli/README.md "$name/README.md"
+          tar czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-wasm32-wasip1
+          path: caekit-wasm32-wasip1.tar.gz
+          if-no-files-found: error
+
+  # The three publish jobs share the `release` environment: one approval releases all of
+  # them, and only after every build above has passed.
+  publish-crates:
+    name: publish crates.io
+    needs: [check, crates, wheels, sdist, npm, cli, cli-wasi]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # A token is needed once, for the very first release; afterwards trusted publishing.
+      HAS_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup toolchain install stable --profile minimal
+      - name: Trusted publishing token
+        id: auth
+        if: env.HAS_TOKEN != 'true'
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+      - name: Publish in dependency order (crates already on the index are skipped)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: node scripts/release.mjs publish-crates
+
+  publish-pypi:
+    name: publish PyPI
+    needs: [check, crates, wheels, sdist, npm, cli, cli-wasi]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdist
+          path: dist
+      # Trusted publishing; no token. Attestations are generated by the action.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+          skip-existing: true
+
+  publish-npm:
+    name: publish npm
+    needs: [check, crates, wheels, sdist, npm, cli, cli-wasi]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+      - name: Publish (trusted publishing; NPM_TOKEN only for the very first release)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          if npm view "caekit-wasm@$VERSION" version > /dev/null 2>&1; then
+            echo "caekit-wasm@$VERSION is already on npm"
+            exit 0
+          fi
+          tag=latest
+          if [ "$PRERELEASE" = true ]; then tag=next; fi
+          npm publish ./caekit-wasm-"$VERSION".tgz --access public --provenance --tag "$tag"
+
+  github-release:
+    name: GitHub release
+    needs: [check, publish-crates, publish-pypi, publish-npm]
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and release notes
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          node scripts/release.mjs notes "$VERSION" > notes.md
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          body_path: notes.md
+          prerelease: ${{ needs.check.outputs.prerelease == 'true' }}
+          files: dist/*
+          fail_on_unmatched_files: true
