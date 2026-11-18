@@ -65,6 +65,14 @@ pub struct MeshMetrics {
     pub smallest_cell_m: f64,
     pub smallest_cell_index: usize,
     pub largest_cell_m: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<MeshQuality>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeshQuality {
+    pub minimum_mean_ratio: f64,
+    pub cell_index: usize,
 }
 
 impl LineMesh {
@@ -89,6 +97,7 @@ impl LineMesh {
             smallest_cell_m: f64::INFINITY,
             smallest_cell_index: 0,
             largest_cell_m: 0.0,
+            quality: None,
         };
         for (i, edge) in vertices.windows(2).enumerate() {
             let length = edge[1] - edge[0];

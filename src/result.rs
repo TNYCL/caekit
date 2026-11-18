@@ -26,6 +26,11 @@ pub enum Output {
     OutletTemperature,
     HeatTransferRate,
     InterfaceHeatFlux,
+    DisplacementVector,
+    CauchyStress,
+    VonMisesStress,
+    NodalReaction,
+    ElasticEnergy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +54,18 @@ pub enum Quantity {
         location: SampleLocation,
         positions_m: Vec<[f64; 3]>,
         values: Vec<f64>,
+    },
+    VectorField {
+        unit: String,
+        location: SampleLocation,
+        positions_m: Vec<[f64; 3]>,
+        values: Vec<[f64; 3]>,
+    },
+    TensorField {
+        unit: String,
+        location: SampleLocation,
+        positions_m: Vec<[f64; 3]>,
+        values: Vec<[[f64; 3]; 3]>,
     },
     ByRegion {
         unit: String,
@@ -95,6 +112,22 @@ impl Quantity {
             } => {
                 positions_m.iter().flatten().all(|x| x.is_finite())
                     && values.iter().all(|x| x.is_finite())
+            }
+            Self::VectorField {
+                positions_m,
+                values,
+                ..
+            } => {
+                positions_m.iter().flatten().all(|x| x.is_finite())
+                    && values.iter().flatten().all(|x| x.is_finite())
+            }
+            Self::TensorField {
+                positions_m,
+                values,
+                ..
+            } => {
+                positions_m.iter().flatten().all(|x| x.is_finite())
+                    && values.iter().flatten().flatten().all(|x| x.is_finite())
             }
             Self::ByRegion { values, .. } => values.values().all(|x| x.is_finite()),
         }

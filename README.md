@@ -11,6 +11,7 @@ cargo run --locked -- check examples/axial_bar.json
 cargo run --locked -- run examples/axial_bar.json
 cargo run --locked -- run examples/laminar_channel.json
 cargo run --locked -- run examples/cooling_channel.json
+cargo run --locked -- run examples/elastic_solid.json
 cargo test --locked
 ```
 
@@ -23,7 +24,9 @@ The [laminar channel](docs/physics/laminar-channel.md) example solves a
 fully developed volume-driven flow and reports pressure loss, the velocity
 profile and balance residuals. The [cooling channel](docs/physics/cooling-channel.md)
 exchanges heat between independently meshed wall and coolant domains and
-reports the outlet temperature and interface and system energy balances.
+reports the outlet temperature and interface and system energy balances. The
+[elastic solid](docs/physics/elastic-solid.md) computes displacements, stress
+tensors and reactions on a three-dimensional tetrahedral mesh.
 
 See the [model and result format](docs/model.md) and
 [source and data provenance](docs/provenance.md).

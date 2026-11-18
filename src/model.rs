@@ -6,7 +6,8 @@ use crate::error::nonempty;
 use crate::linear::LinearSettings;
 use crate::mesh::{GeometryRevision, MeshMetrics};
 use crate::physics::{
-    axial_bar::AxialBar, cooling_channel::CoolingChannel, laminar_channel::LaminarChannel,
+    axial_bar::AxialBar, cooling_channel::CoolingChannel, elastic_solid::ElasticSolid,
+    laminar_channel::LaminarChannel,
 };
 use crate::result::Output;
 
@@ -37,11 +38,13 @@ pub enum Physics {
     AxialBar(Box<AxialBar>),
     LaminarChannel(Box<LaminarChannel>),
     CoolingChannel(Box<CoolingChannel>),
+    ElasticSolid(Box<ElasticSolid>),
 }
 
 impl Physics {
     pub(crate) fn geometry(&self) -> Vec<&GeometryRevision> {
         match self {
+            Self::ElasticSolid(case) => vec![&case.geometry],
             Self::AxialBar(case) => vec![&case.geometry.identity],
             Self::LaminarChannel(case) => vec![&case.geometry.identity],
             Self::CoolingChannel(case) => vec![&case.flow.geometry.identity, &case.wall.identity],
@@ -50,6 +53,7 @@ impl Physics {
 
     pub(crate) fn supports(&self, output: Output) -> bool {
         match self {
+            Self::ElasticSolid(_) => ElasticSolid::OUTPUTS.contains(&output),
             Self::AxialBar(_) => AxialBar::OUTPUTS.contains(&output),
             Self::LaminarChannel(_) => LaminarChannel::OUTPUTS.contains(&output),
             Self::CoolingChannel(_) => {
@@ -121,6 +125,7 @@ impl Model {
 
         let meshes = match &self.physics {
             Physics::AxialBar(case) => vec![case.validate()?],
+            Physics::ElasticSolid(case) => vec![case.validate()?],
             Physics::LaminarChannel(case) => vec![case.validate("physics")?],
             Physics::CoolingChannel(case) => case.validate()?,
         };

@@ -138,7 +138,7 @@ impl Pressure {
         reference + value
     }
 
-    fn difference_pa(self, other: Self) -> f64 {
+    pub(crate) fn difference_pa(self, other: Self) -> f64 {
         let (reference, value) = self.parts();
         let (other_reference, other_value) = other.parts();
         if reference == other_reference {
@@ -148,7 +148,7 @@ impl Pressure {
         }
     }
 
-    fn validate(self, path: &str) -> Result<(), Error> {
+    pub(crate) fn validate(self, path: &str) -> Result<(), Error> {
         if let Self::Gauge {
             reference_absolute_pa,
             ..

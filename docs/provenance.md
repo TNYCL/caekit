@@ -21,3 +21,6 @@
 - The cooling channel uses synthetic wall conductivity, fluid heat capacity
   and an assumed film coefficient under the project license. The analytic
   reference is a continuous thermal resistance and bulk energy balance.
+- The elastic solid example uses a synthetic cuboid patch mesh, constant
+  elastic properties and analytical traction and body-load cases under the
+  project license.

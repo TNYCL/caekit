@@ -17,7 +17,9 @@ Coordinates use a global Cartesian frame in metres. One-dimensional cases
 place an oriented local axis in that frame. The origin and unit direction map
 local mesh coordinates to global sample positions. Each mesh lists ordered
 vertices including both endpoints. Conditions refer to named boundary regions
-defined by that mesh. Assignments belong to the supplied geometry revision.
+defined by that mesh. The tetrahedral mesh uses zero-based volume connectivity
+and named exterior triangle sets. Assignments belong to the supplied geometry
+revision.
 
 The default linear settings are a relative residual tolerance of 1e-10, an
 absolute residual tolerance of zero and an iteration limit of 20,000. For the

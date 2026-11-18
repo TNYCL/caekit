@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "name": "Uniform tension and Poisson contraction in a tetrahedral block",
+  "units": "si",
+  "physics": {
+    "kind": "elastic_solid",
+    "geometry": {
+      "id": "tensile-block",
+      "revision": "1"
+    },
+    "mesh": {
+      "vertices_m": [
+        [1.0, 2.0, -1.0],
+        [1.0, 2.0, -0.6],
+        [1.0, 2.5, -1.0],
+        [1.0, 2.5, -0.6],
+        [3.0, 2.0, -1.0],
+        [3.0, 2.0, -0.6],
+        [3.0, 2.5, -1.0],
+        [3.0, 2.5, -0.6]
+      ],
+      "cells": [
+        [0, 4, 6, 7],
+        [0, 5, 4, 7],
+        [0, 6, 2, 7],
+        [0, 2, 3, 7],
+        [0, 1, 5, 7],
+        [0, 3, 1, 7]
+      ],
+      "boundary_regions": [
+        {
+          "name": "x0",
+          "faces": [
+            [0, 1, 3],
+            [0, 2, 3]
+          ]
+        },
+        {
+          "name": "x1",
+          "faces": [
+            [4, 5, 7],
+            [4, 6, 7]
+          ]
+        },
+        {
+          "name": "y0",
+          "faces": [
+            [0, 1, 5],
+            [0, 4, 5]
+          ]
+        },
+        {
+          "name": "y1",
+          "faces": [
+            [2, 3, 7],
+            [2, 6, 7]
+          ]
+        },
+        {
+          "name": "z0",
+          "faces": [
+            [0, 2, 6],
+            [0, 4, 6]
+          ]
+        },
+        {
+          "name": "z1",
+          "faces": [
+            [1, 3, 7],
+            [1, 5, 7]
+          ]
+        }
+      ]
+    },
+    "material": {
+      "id": "reference-elastic-solid",
+      "young_modulus_pa": 200000000000.0,
+      "poisson_ratio": 0.31,
+      "source": {
+        "citation": "CAEKit affine 3D elasticity fixture",
+        "usage_terms": "Synthetic reference input covered by the CAEKit project license"
+      }
+    },
+    "boundary_conditions": [
+      {
+        "kind": "displacement",
+        "region": "x0",
+        "components_m": [
+          0,
+          null,
+          null
+        ]
+      },
+      {
+        "kind": "displacement",
+        "region": "y0",
+        "components_m": [
+          null,
+          0,
+          null
+        ]
+      },
+      {
+        "kind": "displacement",
+        "region": "z0",
+        "components_m": [
+          null,
+          null,
+          0
+        ]
+      },
+      {
+        "kind": "traction",
+        "region": "x1",
+        "components_pa": [
+          10000000.0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "outputs": [
+    "displacement_vector",
+    "cauchy_stress",
+    "von_mises_stress",
+    "nodal_reaction",
+    "elastic_energy"
+  ]
+}

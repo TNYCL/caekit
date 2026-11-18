@@ -7,14 +7,17 @@ mod mesh;
 mod model;
 pub mod physics;
 mod result;
+mod tetra;
 
 pub use error::Error;
 pub use linear::{Convergence, LinearSettings, StopReason};
-pub use mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics};
+pub use mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics, MeshQuality};
 pub use model::{MODEL_SCHEMA_VERSION, MaterialSource, Model, ModelCheck, Physics, Units};
 pub use result::{
     Balance, Execution, Output, Quantity, RESULT_SCHEMA_VERSION, RunReport, SampleLocation,
 };
+
+pub use tetra::{FaceRegion, TetraMesh};
 
 use sha2::{Digest, Sha256};
 
@@ -24,6 +27,7 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
     let hash = Sha256::digest(serde_json::to_vec(model)?);
     let mut solution = match &model.physics {
         Physics::AxialBar(case) => case.solve(model.linear_solver)?,
+        Physics::ElasticSolid(case) => case.solve(model.linear_solver, &model.outputs)?,
         Physics::LaminarChannel(case) => case.solve(model.linear_solver)?,
         Physics::CoolingChannel(case) => case.solve(model.linear_solver, &model.outputs)?,
     };
