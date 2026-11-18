@@ -15,36 +15,73 @@ use caekit_mesh::{GeometryRevision, MeshMetrics};
 use caekit_numerics::LinearSettings;
 use caekit_types::error::nonempty;
 
+/// Schema version of the model documents this crate reads, and the only value accepted for
+/// [`Model::schema_version`].
 pub const MODEL_SCHEMA_VERSION: u32 = 1;
 
 /// Input to every execution surface. Hardware and precision selection are execution concerns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Model {
+    /// Schema version of the document; must equal [`MODEL_SCHEMA_VERSION`], otherwise
+    /// [`Error::UnsupportedModelVersion`] is returned.
     pub schema_version: u32,
+    /// Human-readable run name; must contain a non-whitespace character. It is copied to the run
+    /// report as `model_name`.
     pub name: String,
+    /// Unit system of every numeric value in the model; `si` is the only choice.
     pub units: Units,
+    /// Physical case to solve, with its geometry revision, mesh, materials and conditions. In JSON
+    /// its `kind` key selects the case.
     pub physics: Physics,
+    /// Stopping settings of the iterative linear solve of the case.
+    ///
+    /// Optional in JSON: when omitted the defaults of [`LinearSettings`] apply, and when present
+    /// all of its fields are required. The relative tolerance must lie strictly between 0 and 1,
+    /// the absolute tolerance must be nonnegative and finite and the iteration limit positive. The
+    /// absolute tolerance is in the residual unit of the solved equation: N for the axial bar, the
+    /// elastic solid and the mechanical stage of the thermoelastic solid, W for the two heat
+    /// conduction cases and Pa for the momentum stage of the laminar and cooling channels.
     #[serde(default)]
     pub linear_solver: LinearSettings,
+    /// Quantities to include in the run report, spelled in snake_case in JSON. The list must be
+    /// nonempty and free of duplicates, and every entry must be available for the selected physics.
     pub outputs: Vec<Output>,
 }
 
+/// Unit system of a model's numeric values.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Units {
+    /// SI units, spelled `si` in JSON. Physical input fields name their unit in a suffix such as
+    /// `_m`, `_pa` or `_k`.
     Si,
 }
 
+/// Physical case of a model.
+///
+/// In JSON the variant is selected by the `kind` key in snake_case, placed next to the fields of
+/// the case, for example `"kind": "axial_bar"`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Physics {
+    /// `axial_bar`: static axial deformation of a straight elastic bar with uniform cross-section.
     AxialBar(Box<AxialBar>),
+    /// `laminar_channel`: fully developed incompressible laminar flow between two stationary
+    /// parallel plates.
     LaminarChannel(Box<LaminarChannel>),
+    /// `cooling_channel`: a laminar channel whose stream exchanges heat with a conductive wall.
     CoolingChannel(Box<CoolingChannel>),
+    /// `elastic_solid`: static linear elasticity of an isotropic solid on a tetrahedral mesh.
     ElasticSolid(Box<ElasticSolid>),
+    /// `heat_conduction`: steady isotropic heat conduction in a single-material solid on a
+    /// tetrahedral mesh.
     HeatConduction(Box<HeatConduction>),
+    /// `multimaterial_heat_conduction`: steady heat conduction with a material assigned to each
+    /// named volume region of a tetrahedral mesh.
     MultimaterialHeatConduction(Box<MultimaterialHeatConduction>),
+    /// `thermoelastic_solid`: steady heat conduction followed by linear elasticity with thermal
+    /// strain on the same tetrahedral mesh.
     ThermoelasticSolid(Box<ThermoelasticSolid>),
 }
 
@@ -81,9 +118,14 @@ impl Physics {
     }
 }
 
+/// Outcome of a successful [`Model::validate`], written as JSON by the CLI `check` command.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModelCheck {
+    /// Schema version of the validated model.
     pub model_schema_version: u32,
+    /// Metrics of each mesh of the physics case, named by its path in the model. Most cases have
+    /// one mesh; the cooling channel lists its flow, wall axial, wall thickness and coolant axial
+    /// meshes, in that order.
     pub meshes: Vec<MeshMetrics>,
 }
 

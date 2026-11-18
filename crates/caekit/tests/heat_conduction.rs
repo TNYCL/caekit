@@ -1,3 +1,7 @@
+//! Heat conduction: the linear analytical profile with its flux and boundary heat rates,
+//! flux and convection conditions, weak convection, refinement with a uniform source, and
+//! rejected thermal inputs.
+
 #[path = "common/block.rs"]
 mod block;
 mod common;

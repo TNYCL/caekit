@@ -8,27 +8,44 @@ use crate::{MeshMetrics, MeshQuality};
 use caekit_types::Error;
 use caekit_types::error::nonempty;
 
+/// Tetrahedral volume mesh in global Cartesian coordinates with named exterior face regions.
+///
+/// The fields are the keys of a solid `mesh` object in the JSON model. All vertex and cell indices
+/// are zero-based. [`TetraMesh::check`] enforces the constraints stated on the fields and requires
+/// the cells to form one body connected through shared faces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TetraMesh {
+    /// Vertex positions as global Cartesian `[x, y, z]` in metres. At least four are required,
+    /// every coordinate must be finite and every vertex must belong to at least one cell.
     pub vertices_m: Vec<[f64; 3]>,
     /// Positive orientation, with the three edge vectors measured from the first vertex.
+    ///
+    /// Each cell lists four distinct zero-based indices into `vertices_m`. At least one cell is
+    /// required, and no two cells may have the same vertex set.
     pub cells: Vec<[usize; 4]>,
     /// Named sets of exterior triangles. Each exterior face belongs to one region.
     pub boundary_regions: Vec<FaceRegion>,
 }
 
+/// Named set of exterior triangles that boundary conditions refer to.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FaceRegion {
+    /// Region name used by boundary conditions; must not be blank and must be unique within the
+    /// mesh.
     pub name: String,
+    /// Triangles as three zero-based vertex indices in any order. The list must not be empty, and
+    /// each triangle must be an exterior face of the mesh that no other entry of any region claims.
     pub faces: Vec<[usize; 3]>,
 }
 
+/// Returns the component-wise difference `a - b` of two 3-vectors.
 pub fn subtract(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|i| a[i] - b[i])
 }
 
+/// Returns the right-handed cross product `a × b` of two 3-vectors.
 pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -37,41 +54,71 @@ pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+/// Returns the scalar product `a · b` of two 3-vectors.
 pub fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a.into_iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
+/// Geometry of one checked tetrahedron as needed by linear finite-element operators.
 #[derive(Debug)]
 pub struct Tet {
+    /// Cell volume in m³; positive and finite.
     pub volume: f64,
+    /// Gradients of the four linear nodal shape functions in 1/m, as global Cartesian components.
+    /// Entry `a` belongs to vertex `a` of the cell in the order of [`TetraMesh::cells`]. Each
+    /// gradient is constant over the cell, and the first is the negated sum of the other three.
     pub gradients: [[f64; 3]; 4],
+    /// Mean of the four vertex positions in metres, in global Cartesian coordinates.
     pub centroid: [f64; 3],
 }
 
+/// Exterior triangular face of a checked mesh with its area and outward normal.
 #[derive(Debug)]
 pub struct Triangle {
+    /// Zero-based vertex indices of the face, sorted in ascending order.
     pub nodes: [usize; 3],
+    /// Face area in m²; positive and finite.
     pub area: f64,
+    /// Unit normal pointing out of the tetrahedron that owns the face, as global Cartesian
+    /// components.
     pub outward: [f64; 3],
 }
 
+/// Triangular face shared by two tetrahedra of a checked mesh.
 pub struct InteriorFace {
+    /// Zero-based indices of the two cells that share the face; the first is the one listed earlier
+    /// in [`TetraMesh::cells`].
     pub cells: [usize; 2],
+    /// Face area in m²; positive and finite.
     pub area: f64,
     /// Unit normal from the first cell toward the second.
     pub outward: [f64; 3],
 }
 
+/// Cell ownership of the exterior and interior faces of a checked mesh.
+///
+/// Filled by [`TetraMesh::checked_with_face_adjacency`]. The map keys borrow the region names of
+/// the mesh.
 #[derive(Default)]
 pub struct TetraFaceAdjacency<'a> {
     /// Exterior face owner indices in the checked topology's boundary face order.
     pub boundary_cells: BTreeMap<&'a str, Vec<usize>>,
+    /// Every face shared by two cells, in ascending order of the face's sorted vertex-index triple.
     pub interior_faces: Vec<InteriorFace>,
 }
 
+/// Element geometry, boundary triangles and metrics derived from a checked tetrahedral mesh.
+///
+/// The map keys borrow the region names of the mesh.
 pub struct TetraTopology<'a> {
+    /// Volume, shape-function gradients and centroid of each cell, in the order of
+    /// [`TetraMesh::cells`].
     pub elements: Vec<Tet>,
+    /// Exterior triangles by region name. Each list follows the order of that region's
+    /// [`FaceRegion::faces`].
     pub boundaries: BTreeMap<&'a str, Vec<Triangle>>,
+    /// Cell count, shortest and longest edge with the first cell holding the shortest, and the
+    /// lowest mean-ratio quality. Its `name` is the path given to the check.
     pub metrics: MeshMetrics,
 }
 
@@ -82,14 +129,17 @@ pub struct CheckedTetraMesh<'a> {
 }
 
 impl<'a> CheckedTetraMesh<'a> {
+    /// Returns the mesh that was checked.
     pub fn mesh(&self) -> &'a TetraMesh {
         self.mesh
     }
 
+    /// Returns the element geometry, boundary triangles and metrics derived by the check.
     pub fn topology(&self) -> &TetraTopology<'a> {
         &self.topology
     }
 
+    /// Consumes the checked mesh and returns its [`MeshMetrics`], discarding the derived geometry.
     pub fn into_metrics(self) -> MeshMetrics {
         self.topology.metrics
     }
@@ -104,6 +154,9 @@ struct FaceUse {
 }
 
 impl TetraMesh {
+    /// Validates the mesh as [`TetraMesh::check`] does and binds the derived topology to the mesh.
+    ///
+    /// Error conditions and the meaning of `path` are those of `check`.
     pub fn checked<'a>(&'a self, path: &str) -> Result<CheckedTetraMesh<'a>, Error> {
         Ok(CheckedTetraMesh {
             mesh: self,
@@ -111,6 +164,22 @@ impl TetraMesh {
         })
     }
 
+    /// Validates the mesh and derives element geometry, boundary triangles and mesh metrics.
+    ///
+    /// `path` is the model path of the mesh; it prefixes error paths and becomes
+    /// [`MeshMetrics::name`]. Returns [`Error::InvalidModel`] when:
+    ///
+    /// - there are fewer than four vertices or no cells, or a coordinate is not finite;
+    /// - a cell has an out-of-range or repeated vertex index, has the same vertex set as an earlier
+    ///   cell, or is inverted, degenerate or outside the finite binary64 range;
+    /// - a face has a numerically degenerate area or orientation, is shared by more than two cells,
+    ///   or has both of its cells on the same side of it;
+    /// - a vertex belongs to no cell, or the cells are not all connected through shared faces;
+    /// - a region name is blank or repeated, a region has no faces, or a listed face is unknown,
+    ///   interior or already assigned;
+    /// - an exterior face belongs to no region.
+    ///
+    /// The checks assume a conforming volume that does not intersect itself.
     pub fn check<'a>(&'a self, path: &str) -> Result<TetraTopology<'a>, Error> {
         self.check_topology(path, None)
     }

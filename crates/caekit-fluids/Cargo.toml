@@ -6,9 +6,15 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Fluid mechanics models and solvers for CAEKit"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 caekit-mesh.workspace = true
 caekit-numerics.workspace = true
 caekit-types.workspace = true
 serde.workspace = true
+
+[lints]
+workspace = true

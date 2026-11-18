@@ -17,49 +17,104 @@ use region_energy::RegionEnergy;
 use volume::{CellMaterials, CellProperties};
 pub use volume::{MultimaterialThermal, ThermalVolumeRegion};
 
+/// Steady heat conduction in one homogeneous solid, the `heat_conduction` physics case.
+///
+/// Solves `-div(k grad T) = Q` with constant isotropic conductivity `k` and uniform source `Q` on a
+/// tetrahedral mesh with linear (P1) finite elements. The fields are the keys of the `physics`
+/// object in the JSON model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeatConduction {
+    /// Identity of the geometry that the mesh and its region assignments belong to. `id` and
+    /// `revision` must be nonempty.
     pub geometry: GeometryRevision,
+    /// Tetrahedral mesh of the solid in global coordinates in m. Its named exterior triangle
+    /// regions are the regions that boundary conditions refer to.
     pub mesh: TetraMesh,
+    /// Material, boundary conditions and volumetric heat source of the solid.
     pub thermal: SolidThermal,
 }
 
+/// Steady heat conduction through several materials in ideal thermal contact, the
+/// `multimaterial_heat_conduction` physics case.
+///
+/// All volume regions share one conforming tetrahedral mesh, so the temperature is continuous
+/// across material interfaces while conductivity and heat source are constant within each volume
+/// region. The fields are the keys of the `physics` object in the JSON model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MultimaterialHeatConduction {
+    /// Identity of the geometry that the mesh and its region assignments belong to. `id` and
+    /// `revision` must be nonempty.
     pub geometry: GeometryRevision,
+    /// Tetrahedral mesh of the whole solid in global coordinates in m. Its cell order defines the
+    /// zero-based indices in `thermal.volume_regions[].cells`, and its named exterior triangle
+    /// regions are the regions that boundary conditions refer to.
     pub mesh: TetraMesh,
+    /// Materials, their assignment to cells by volume region, and exterior boundary conditions.
     pub thermal: MultimaterialThermal,
 }
 
+/// Thermal definition of a homogeneous solid, read from `physics.thermal` in the `heat_conduction`
+/// and `thermoelastic_solid` cases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SolidThermal {
+    /// The single material of the solid. Its conductivity applies to every cell.
     pub material: ConductiveMaterial,
+    /// Conditions on named exterior regions of the mesh, at most one per region. A region without a
+    /// condition is insulated. At least one `temperature` or `convection` condition is required to
+    /// determine the absolute temperature.
     pub boundary_conditions: Vec<ThermalBoundary>,
+    /// Uniform volumetric heat generation `Q` in W/m³. Positive values generate heat and negative
+    /// values remove it. Must be finite. Defaults to 0 when omitted.
     #[serde(default)]
     pub volumetric_heat_source_w_m3: f64,
 }
 
+/// Thermal condition on one named exterior region of the tetrahedral mesh.
+///
+/// In JSON the `kind` key selects the variant in snake_case (`temperature`, `heat_flux`,
+/// `insulation` or `convection`) and the remaining keys are the variant's fields. Each region may
+/// carry at most one condition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ThermalBoundary {
+    /// Fixes the temperature at every vertex of the region; `"kind": "temperature"` in JSON.
+    ///
+    /// Regions that share a vertex must prescribe exactly the same temperature there.
     Temperature {
+        /// Name of the exterior region in `mesh.boundary_regions` that the condition applies to.
         region: String,
+        /// Prescribed absolute surface temperature in K. Must be positive and finite.
         temperature_k: f64,
     },
+    /// Applies a uniform normal heat flux over the region; `"kind": "heat_flux"` in JSON.
     HeatFlux {
+        /// Name of the exterior region in `mesh.boundary_regions` that the condition applies to.
         region: String,
         /// Positive into the solid, opposite the outward normal.
+        /// Uniform over the region, in W/m². Must be finite.
         inward_heat_flux_w_m2: f64,
     },
+    /// Sets zero normal heat flux on the region; `"kind": "insulation"` in JSON.
+    ///
+    /// This is the same condition as leaving the region unassigned, but it counts as the region's
+    /// one condition.
     Insulation {
+        /// Name of the exterior region in `mesh.boundary_regions` that the condition applies to.
         region: String,
     },
+    /// Exchanges heat with an ambient fluid through a film; `"kind": "convection"` in JSON.
+    ///
+    /// The inward heat flux is `film_coefficient_w_m2_k * (ambient_temperature_k - T_surface)`. The
+    /// region must have a positive total area.
     Convection {
+        /// Name of the exterior region in `mesh.boundary_regions` that the condition applies to.
         region: String,
+        /// Absolute temperature of the ambient fluid in K. Must be positive and finite.
         ambient_temperature_k: f64,
+        /// Film coefficient `h` in W/(m²·K). Must be positive and finite.
         film_coefficient_w_m2_k: f64,
     },
 }
@@ -83,15 +138,28 @@ pub struct SolidTemperature {
 }
 
 impl SolidTemperature {
+    /// Returns the reference temperature in K from which the offsets are measured.
+    ///
+    /// It is the value of the first `temperature` condition in boundary-condition order. Without
+    /// such a condition it is the film-conductance-weighted mean surface temperature implied by the
+    /// global heat balance, or the first convection ambient temperature if that mean is not
+    /// positive and finite.
     pub fn datum_k(&self) -> f64 {
         self.datum_k
     }
 
+    /// Returns the solved temperature minus [`SolidTemperature::datum_k`] in K, one value per mesh
+    /// vertex in vertex order.
     pub fn offsets_k(&self) -> &[f64] {
         &self.offsets_k
     }
 }
 
+/// A validated conduction problem bound to a checked tetrahedral mesh, ready to assemble and solve.
+///
+/// It holds the conductivity and heat source of each cell, the condition of each assigned exterior
+/// region, the prescribed vertex temperatures and the temperature datum. Create it with
+/// [`SolidThermal::prepare`]; it borrows the mesh and the thermal definition.
 pub struct PreparedConduction<'a> {
     mesh: &'a TetraMesh,
     topology: &'a TetraTopology<'a>,
@@ -102,12 +170,41 @@ pub struct PreparedConduction<'a> {
 }
 
 impl HeatConduction {
+    /// Validates the geometry identity, the mesh and the thermal definition without solving.
+    ///
+    /// The thermal checks are those of [`SolidThermal::prepare`]. Returns the mesh metrics, or the
+    /// first [`Error::InvalidModel`] found, with a path under `physics.geometry`, `physics.mesh` or
+    /// `physics.thermal`.
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
         let mesh = self.checked_mesh()?;
         self.thermal.prepare(&mesh)?;
         Ok(mesh.into_metrics())
     }
 
+    /// Validates the case, then assembles and solves the P1 finite-element conduction system.
+    ///
+    /// Prescribed temperatures are eliminated symmetrically and the free equations are solved by
+    /// Jacobi-preconditioned conjugate gradient under `settings`, with residuals in W. Returns the
+    /// mesh metrics and a [`Solution`] with method
+    /// `steady_isotropic_heat_conduction_p1_tetrahedral_fem` and the `solid_heat_conduction`
+    /// convergence stage. If that stage converges, the solution also carries the `solid_energy`
+    /// balance in W (volumetric generation, prescribed inward flux, convection and
+    /// prescribed-temperature reaction) and those of [`SolidThermal::OUTPUTS`] that appear in
+    /// `outputs`:
+    ///
+    /// - [`Output::SolidTemperature`]: absolute temperature in K at the mesh vertices, in vertex
+    ///   order.
+    /// - [`Output::SolidHeatFlux`]: the vector `-k grad T` in W/m² at the cell centroids, in cell
+    ///   order, with global components.
+    /// - [`Output::BoundaryHeatRate`]: integrated heat rate in W for every named exterior region of
+    ///   the mesh, positive into the solid.
+    ///
+    /// Other entries of `outputs` are ignored. `settings` is not validated here; invalid settings
+    /// stop the stage with the `numerical_breakdown` reason at iteration zero.
+    ///
+    /// Fails with the errors of [`HeatConduction::validate`], with [`Error::NonFiniteResult`] if an
+    /// assembled or recovered value is not finite, and with [`Error::InvalidModel`] if a solved
+    /// temperature is not above absolute zero.
     pub fn solve(
         &self,
         settings: LinearSettings,
@@ -125,6 +222,8 @@ impl HeatConduction {
 }
 
 impl MultimaterialHeatConduction {
+    /// Outputs this case can report: nodal temperature, cell heat flux, heat rate by exterior
+    /// region and heat rate by volume-region interface.
     pub const OUTPUTS: &[Output] = &[
         Output::SolidTemperature,
         Output::SolidHeatFlux,
@@ -132,6 +231,15 @@ impl MultimaterialHeatConduction {
         Output::InterfaceHeatRate,
     ];
 
+    /// Validates the geometry identity, the mesh, the materials, the volume regions and the
+    /// boundary conditions without solving.
+    ///
+    /// Requires at least one material, with unique nonempty IDs, positive finite conductivities and
+    /// nonempty citations and usage terms; volume regions with unique nonempty names, a known
+    /// `material_id`, a finite heat source and a nonempty cell list; every mesh cell assigned to
+    /// exactly one region; and boundary conditions that satisfy the rules of
+    /// [`SolidThermal::prepare`]. Returns the mesh metrics, or the first [`Error::InvalidModel`]
+    /// found, with a path under `physics.geometry`, `physics.mesh` or `physics.thermal`.
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
         self.geometry.validate("physics.geometry")?;
         let mesh = self.mesh.checked("physics.mesh")?;
@@ -139,6 +247,25 @@ impl MultimaterialHeatConduction {
         Ok(mesh.into_metrics())
     }
 
+    /// Validates the case, solves for the temperature and recovers heat rates per exterior region,
+    /// volume region and interface.
+    ///
+    /// The temperature solve and its outputs are those of [`HeatConduction::solve`], with each cell
+    /// using the conductivity and heat source of its volume region. In addition to the global
+    /// `solid_energy` balance, the solution carries one `solid_energy:<name>` balance in W per
+    /// volume region with the terms `volumetric_generation`, `exterior_heat_input` and
+    /// `interface_heat_input`, each positive into the region.
+    ///
+    /// The power across each pair of adjoining regions is first integrated from the mean normal
+    /// flux of the two cells at every shared face. If at least one such pair exists, a second
+    /// stage, `solid_interface_equilibration`, corrects these powers under the same `settings` so
+    /// that every regional balance closes up to the mean imbalance over all regions.
+    /// [`Output::InterfaceHeatRate`] reports one value in W per pair, with the two region names in
+    /// lexicographic order and positive from the first to the second.
+    ///
+    /// If either stage does not converge, the solution carries only the convergence stages that
+    /// ran. Fails with the errors of [`MultimaterialHeatConduction::validate`] and with the
+    /// calculation errors listed on [`HeatConduction::solve`].
     pub fn solve(
         &self,
         settings: LinearSettings,
@@ -165,6 +292,8 @@ impl MultimaterialHeatConduction {
 }
 
 impl SolidThermal {
+    /// Outputs a homogeneous conduction solve can report: nodal temperature, cell heat flux and
+    /// heat rate by exterior region.
     pub const OUTPUTS: &[Output] = &[
         Output::SolidTemperature,
         Output::SolidHeatFlux,
@@ -172,6 +301,17 @@ impl SolidThermal {
     ];
     const METHOD: &str = "steady_isotropic_heat_conduction_p1_tetrahedral_fem";
 
+    /// Validates this thermal definition against a checked mesh and binds the two into a solvable
+    /// problem.
+    ///
+    /// Checks the material (nonempty ID, positive finite conductivity, nonempty citation and usage
+    /// terms), that the heat source is finite, and every boundary condition. A condition's region
+    /// must be an exterior region of the mesh that has no earlier condition, and its values must
+    /// satisfy the ranges given on [`ThermalBoundary`]. Prescribed temperatures must agree at
+    /// shared vertices. A convection region must have a positive area and a positive finite
+    /// conductance on every face. At least one `temperature` or `convection` condition is required.
+    ///
+    /// Returns the first [`Error::InvalidModel`] found, with a path under `physics.thermal`.
     pub fn prepare<'a>(
         &'a self,
         checked: &'a CheckedTetraMesh<'a>,
@@ -286,6 +426,13 @@ impl<'a> PreparedConduction<'a> {
             datum_k,
         })
     }
+    /// Assembles and solves the conduction system and reports the requested outputs.
+    ///
+    /// Returns the [`Solution`] described on [`HeatConduction::solve`] together with the nodal
+    /// temperatures as a [`SolidTemperature`], for use by a coupled solve. The temperatures are
+    /// `None`, and the solution carries only its convergence stage, if the linear solve does not
+    /// converge. Fails with [`Error::NonFiniteResult`] if an assembled or recovered value is not
+    /// finite, and with [`Error::InvalidModel`] if a solved temperature is not above absolute zero.
     pub fn solve(
         &self,
         settings: LinearSettings,

@@ -1,3 +1,7 @@
+//! Multimaterial heat conduction: the series-resistance reference, interface heat rates and
+//! regional energy balances, attribution of exterior power, refinement of a curved profile,
+//! and rejected volume assignments.
+
 #[path = "common/block.rs"]
 mod block;
 mod common;

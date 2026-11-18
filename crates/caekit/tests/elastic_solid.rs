@@ -1,3 +1,6 @@
+//! Elastic solid: the three-dimensional patch test, loads resolved under an imposed rigid
+//! translation, gauge pressure, body loads, and diagnosed mesh and constraint defects.
+
 mod common;
 
 use caekit::physics::elastic_solid::{ElasticSolid, SolidBoundary};

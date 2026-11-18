@@ -1,3 +1,7 @@
+//! Sparse systems: verified residuals, elimination of prescribed unknowns, the distinction
+//! between an iteration limit and a numerical breakdown, and inputs that must never report
+//! convergence.
+
 use caekit_numerics::{ConstrainedSystem, LinearSettings, SparseAssembly, StopReason, norm};
 
 fn two_variable_system() -> SparseAssembly {

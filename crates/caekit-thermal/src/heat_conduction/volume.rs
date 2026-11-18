@@ -6,21 +6,41 @@ use super::{ConductiveMaterial, ThermalBoundary};
 use caekit_types::Error;
 use caekit_types::error::{finite, nonempty, positive};
 
+/// Thermal definition of a multimaterial solid, read from `physics.thermal` in the
+/// `multimaterial_heat_conduction` case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MultimaterialThermal {
+    /// Materials that the volume regions can refer to. Must contain at least one entry, and the
+    /// `id` values must be unique. Several regions may use the same material.
     pub materials: Vec<ConductiveMaterial>,
+    /// Partition of the mesh cells into named regions, each with one material and one heat source.
+    /// Every cell must belong to exactly one region. Two different regions form an interface
+    /// wherever their cells share a face, including when they use the same material.
     pub volume_regions: Vec<ThermalVolumeRegion>,
+    /// Conditions on named exterior regions of the mesh, at most one per region. A region without a
+    /// condition is insulated. At least one `temperature` or `convection` condition is required to
+    /// determine the absolute temperature.
     pub boundary_conditions: Vec<ThermalBoundary>,
 }
 
+/// A named set of mesh cells that share one material and one uniform heat source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThermalVolumeRegion {
+    /// Region name, nonempty and unique among the volume regions. It labels the region's
+    /// `solid_energy:<name>` balance and identifies it in interface heat rates, whose direction
+    /// follows the lexicographic order of the two names.
     pub name: String,
+    /// The `id` of the entry of `materials` whose conductivity applies to the region's cells. It
+    /// must match an entry exactly.
     pub material_id: String,
     /// Zero-based indices into the tetrahedral mesh's cells.
+    /// Must be nonempty and in range. Each mesh cell must be listed exactly once across all
+    /// regions.
     pub cells: Vec<usize>,
+    /// Uniform volumetric heat generation in the region, in W/m³. Positive values generate heat and
+    /// negative values remove it. Must be finite. Defaults to 0 when omitted.
     #[serde(default)]
     pub volumetric_heat_source_w_m3: f64,
 }

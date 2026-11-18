@@ -9,37 +9,80 @@ use caekit_types::error::{finite, nonempty, positive};
 use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
 use caekit_types::{Error, MaterialSource};
 
+/// Static axial deformation of a straight elastic bar (the `axial_bar` physics case).
+///
+/// The bar has a uniform cross-section and a constant Young's modulus and carries no body force. It
+/// is discretized with two-node linear elements along its local axis, and loads and supports act
+/// only at the two mesh endpoints. A converged solve reports the `global_axial_force` balance in N
+/// between the applied end forces and the support reactions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AxialBar {
+    /// Geometry revision, placement of the bar axis, length and cross-section area.
     pub geometry: BarGeometry,
+    /// Axial mesh in the local coordinate in m: at least two strictly increasing vertices running
+    /// from exactly 0 to `geometry.length_m`. Its two distinct, nonempty endpoint region names are
+    /// the regions that `boundary_conditions` refer to.
     pub mesh: LineMesh,
+    /// Elastic material of the whole bar.
     pub material: ElasticMaterial,
+    /// Exactly one condition for each of the two mesh endpoints, in any order. At least one must be
+    /// a displacement, which removes rigid translation; a free end is a force of zero.
     pub boundary_conditions: Vec<BarBoundary>,
 }
 
+/// Identity, placement and dimensions of an axial bar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BarGeometry {
+    /// Identifier and revision of the geometry the mesh and conditions belong to; both strings must
+    /// be nonempty.
     pub identity: GeometryRevision,
+    /// Origin in m and unit direction of the bar axis in the global Cartesian frame. The local
+    /// coordinate `x` maps to `origin_m + x * direction`, and positive displacements and forces act
+    /// along this direction.
     pub frame: AxisFrame,
+    /// Bar length in m; positive and finite. The last mesh vertex must equal it exactly.
     pub length_m: f64,
+    /// Uniform cross-section area in m²; positive and finite.
     pub cross_section_area_m2: f64,
 }
 
+/// Linear elastic material of an axial bar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ElasticMaterial {
+    /// Label of the material; must contain a non-whitespace character. It does not enter the
+    /// calculation.
     pub id: String,
+    /// Young's modulus in Pa; positive and finite.
     pub young_modulus_pa: f64,
+    /// Citation and usage terms of the property value; both strings must be nonempty.
     pub source: MaterialSource,
 }
 
+/// Condition at one endpoint of an axial bar.
+///
+/// In JSON the variant is selected by the `kind` key in snake_case (`displacement` or `force`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BarBoundary {
-    Displacement { region: String, value_m: f64 },
-    Force { region: String, value_n: f64 },
+    /// Prescribes the axial displacement of the endpoint.
+    Displacement {
+        /// Name of the mesh endpoint region the condition applies to: the `start_region` or
+        /// `end_region` of the bar mesh.
+        region: String,
+        /// Displacement in m, positive along the frame direction; must be finite.
+        value_m: f64,
+    },
+    /// Applies an axial point force to the endpoint; a force of zero leaves the end free.
+    Force {
+        /// Name of the mesh endpoint region the condition applies to: the `start_region` or
+        /// `end_region` of the bar mesh.
+        region: String,
+        /// Force in N, positive along the frame direction; must be finite.
+        value_n: f64,
+    },
 }
 
 impl BarBoundary {
@@ -51,6 +94,13 @@ impl BarBoundary {
 }
 
 impl AxialBar {
+    /// Quantities this case can report.
+    ///
+    /// `axial_displacement` is sampled at the mesh vertices in m and `axial_stress` at the element
+    /// midpoints in Pa, with tension positive. `end_displacement` in m and `reaction_force` in N
+    /// are keyed by endpoint region. A reaction is reported only for an endpoint with a
+    /// displacement condition and is the force the support exerts on the bar, positive along the
+    /// frame direction.
     pub const OUTPUTS: &[Output] = &[
         Output::AxialDisplacement,
         Output::AxialStress,
@@ -59,6 +109,14 @@ impl AxialBar {
     ];
     const METHOD: &str = "static_small_strain_axial_bar_p1_fem";
 
+    /// Checks the geometry, material, mesh and endpoint conditions and returns the mesh metrics.
+    ///
+    /// Fails with [`Error::InvalidModel`], whose path starts with `physics.`, when a geometry,
+    /// material or source string is empty, the frame origin is not finite or its direction is not a
+    /// unit vector, the length, area or modulus is not positive and finite, the mesh does not run
+    /// from 0 to the length in increasing steps between two distinct named endpoints, a condition
+    /// names an unknown endpoint or holds a non-finite value, an endpoint has no condition or more
+    /// than one, or no displacement is prescribed.
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
         self.geometry
             .identity

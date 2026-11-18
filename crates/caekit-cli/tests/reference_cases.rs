@@ -1,3 +1,6 @@
+//! The `caekit` executable on the saved reference models: `check` and `run` output, and the
+//! exit codes for invalid input, calculation errors and runs that stop without convergence.
+
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};

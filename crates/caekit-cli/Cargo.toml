@@ -6,12 +6,32 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Command-line interface for CAEKit engineering simulation"
+readme = "README.md"
+# The tests read the reference models in /examples, which are outside the package.
+exclude = ["/tests"]
+keywords.workspace = true
+categories = ["science", "simulation", "command-line-utilities"]
 
 [[bin]]
 name = "caekit"
 path = "src/main.rs"
+# The `caekit` library crate owns the documentation name.
+doc = false
 
 [dependencies]
 caekit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true
+
+# `cargo binstall caekit-cli` downloads the release archive instead of compiling.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/caekit-{ target }.tar.gz"
+bin-dir = "caekit-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/caekit-{ target }.zip"
+pkg-fmt = "zip"

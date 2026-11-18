@@ -8,26 +8,62 @@ use caekit_types::error::{nonempty, positive};
 use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
 use caekit_types::{Error, MaterialSource};
 
+/// Steady, fully developed laminar flow of a Newtonian fluid between two stationary parallel
+/// plates.
+///
+/// The fields are the keys of `physics` in a JSON model whose `physics.kind` is `laminar_channel`.
+/// Density and viscosity are constant, both plates are no-slip walls, and the flow is driven by a
+/// pressure difference or a prescribed volume flow. The axial velocity profile across the gap is
+/// solved on the transverse `mesh` with a cell-centred finite-volume method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LaminarChannel {
+    /// Channel dimensions, placement in the global frame and the names of the inlet and outlet.
     pub geometry: ChannelGeometry,
+    /// Transverse mesh across the gap. Its vertices must run from 0 to `geometry.gap_m`, and its
+    /// two endpoint regions are the plate walls.
     pub mesh: LineMesh,
+    /// Fluid with constant density and dynamic viscosity.
     pub material: NewtonianFluid,
+    /// Wall conditions of the two plates: one entry for each endpoint region of `mesh`, in either
+    /// order.
     pub walls: [NoSlipWall; 2],
+    /// What drives the flow: pressures at both ports, or an inlet volume flow with an outlet
+    /// pressure.
     pub drive: FlowDrive,
 }
 
+/// Dimensions and placement of a parallel-plate channel in the global Cartesian frame.
+///
+/// Channel coordinates are the axial distance along `axial_frame` and the transverse distance along
+/// `transverse_direction`, both in metres from the frame origin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChannelGeometry {
+    /// Identifier and revision of the geometry these dimensions and region names belong to.
     pub identity: GeometryRevision,
+    /// Origin of the channel coordinates and unit direction of the flow axis in the global frame.
+    /// The origin is at the inlet end (axial coordinate 0) on the wall at transverse coordinate 0,
+    /// and the direction points from the inlet to the outlet.
     pub axial_frame: AxisFrame,
+    /// Unit vector across the gap as global Cartesian components, pointing from the wall at the
+    /// first mesh vertex toward the wall at the last. Its norm must equal one to within 1e-12, and
+    /// its dot product with the axial direction must not exceed 1e-12 in magnitude.
     pub transverse_direction: [f64; 3],
+    /// Axial length of the channel in metres, over which the pressure loss occurs; positive and
+    /// finite.
     pub length_m: f64,
+    /// Distance between the two plates in metres; positive and finite. The transverse mesh must end
+    /// exactly at this value.
     pub gap_m: f64,
+    /// Spanwise width in metres; positive and finite. It scales the two-dimensional solution to
+    /// flow rates and forces; side walls are not modelled.
     pub width_m: f64,
+    /// Name of the inlet port. Must not be blank and must differ from `outlet_region` and from both
+    /// wall region names of the mesh.
     pub inlet_region: String,
+    /// Name of the outlet port. Must not be blank and must differ from `inlet_region` and from both
+    /// wall region names of the mesh.
     pub outlet_region: String,
 }
 
@@ -61,52 +97,86 @@ impl ChannelGeometry {
         Ok(())
     }
 
+    /// Maps channel coordinates to the global frame.
+    ///
+    /// Returns, in metres, the frame origin plus `axial_m` times the axial direction plus
+    /// `transverse_m` times `transverse_direction`. The geometry is used as given; nothing is
+    /// validated here.
     pub fn position(&self, axial_m: f64, transverse_m: f64) -> [f64; 3] {
         let origin = self.axial_frame.position(axial_m);
         std::array::from_fn(|i| origin[i] + transverse_m * self.transverse_direction[i])
     }
 }
 
+/// Incompressible Newtonian fluid with constant density and dynamic viscosity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewtonianFluid {
+    /// Identifier of the fluid; must not be blank.
     pub id: String,
+    /// Mass density in kg/m³; positive and finite. It converts volume flow to mass flow and enters
+    /// the Reynolds number.
     pub density_kg_m3: f64,
+    /// Dynamic viscosity in Pa·s; positive and finite.
     pub dynamic_viscosity_pa_s: f64,
+    /// Citation and usage terms of the property values; neither may be blank.
     pub source: MaterialSource,
 }
 
+/// Wall condition assigned to one endpoint region of the transverse mesh.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NoSlipWall {
+    /// Name of the wall: the `start_region` or `end_region` of the channel's transverse mesh. The
+    /// two wall entries must name different endpoints.
     pub region: String,
+    /// Velocity condition applied on that wall.
     pub condition: WallCondition,
 }
 
+/// Velocity condition on a channel wall, spelled in snake_case in JSON.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WallCondition {
+    /// Zero fluid velocity at the stationary wall; `no_slip` in JSON.
     NoSlip,
 }
 
+/// Driving condition of the channel flow, selected in JSON by the `kind` key in snake_case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FlowDrive {
+    /// Prescribes the pressure at both ports; `kind` is `pressure`. The inlet pressure must exceed
+    /// the outlet pressure by a positive, finite difference, which is reported as the pressure
+    /// loss.
     Pressure {
+        /// Pressure at the inlet; its `region` must equal `geometry.inlet_region`.
         inlet: PressureAtPort,
+        /// Pressure at the outlet; its `region` must equal `geometry.outlet_region`.
         outlet: PressureAtPort,
     },
+    /// Prescribes the volume flow rate and the outlet pressure; `kind` is `volume_flow`. The
+    /// pressure loss and the inlet pressure are computed.
     VolumeFlow {
+        /// Name of the inlet; must equal `geometry.inlet_region`.
         inlet_region: String,
+        /// Volume flow rate through the channel in m³/s, from inlet to outlet; positive and finite.
         rate_m3_s: f64,
+        /// Pressure at the outlet; its `region` must equal `geometry.outlet_region`.
         outlet: PressureAtPort,
     },
 }
 
+/// Pressure prescribed on a named inlet or outlet region.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PressureAtPort {
+    /// Name of the port; must equal the geometry's inlet or outlet region name, whichever this
+    /// entry is given for.
     pub region: String,
+    /// Absolute pressure, or a gauge reading with its absolute reference pressure, in Pa. The
+    /// reference of a gauge reading and the resulting absolute pressure must be positive and
+    /// finite.
     pub pressure: Pressure,
 }
 
@@ -124,6 +194,10 @@ impl PressureAtPort {
     }
 }
 
+/// Converged hydraulic state of a channel, returned by [`LaminarChannel::compute`].
+///
+/// Holds the cell velocities and centres, volume and mass flow rates, pressure loss, absolute port
+/// pressures and wall drag that [`LaminarChannel::add_outputs`] turns into report quantities.
 pub struct FlowState {
     velocity_m_s: Vec<f64>,
     centers_m: Vec<f64>,
@@ -136,12 +210,15 @@ pub struct FlowState {
 }
 
 impl FlowState {
+    /// Returns the mass flow rate through the channel in kg/s: density times volume flow rate. It
+    /// is positive and finite.
     pub fn mass_flow_kg_s(&self) -> f64 {
         self.mass_flow_kg_s
     }
 }
 
 impl LaminarChannel {
+    /// Output quantities that a model of this case may request.
     pub const OUTPUTS: &[Output] = &[
         Output::AxialVelocity,
         Output::VolumeFlowRate,
@@ -153,6 +230,22 @@ impl LaminarChannel {
     ];
     const METHOD: &str = "steady_fully_developed_laminar_channel_cell_centered_fvm";
 
+    /// Checks geometry, transverse mesh, fluid, walls and drive, and returns the mesh metrics.
+    ///
+    /// `path` is the model path of this case, `physics` for a standalone channel; it prefixes error
+    /// paths, and the returned [`MeshMetrics::name`] is `{path}.mesh`. Returns
+    /// [`Error::InvalidModel`] when:
+    ///
+    /// - a geometry identity field is blank, a frame vector is not a unit vector, the two axes are
+    ///   not perpendicular, a dimension is not positive and finite, or the port names are blank or
+    ///   equal;
+    /// - the mesh does not run from 0 to `gap_m` in strictly increasing steps, or its wall names
+    ///   are blank or equal;
+    /// - the fluid `id` or its source is blank, or density or viscosity is not positive and finite;
+    /// - the two `walls` entries do not name the two distinct endpoint regions of the mesh;
+    /// - a wall region has the same name as the inlet or outlet;
+    /// - a drive region does not match the geometry, a pressure is invalid, the inlet pressure does
+    ///   not exceed the outlet pressure, or the volume flow rate is not positive and finite.
     pub fn validate(&self, path: &str) -> Result<MeshMetrics, Error> {
         self.geometry.validate(&format!("{path}.geometry"))?;
         let metrics = self
@@ -219,6 +312,13 @@ impl LaminarChannel {
     }
 
     /// Solve a validated channel model and construct its standalone outputs.
+    ///
+    /// Runs [`LaminarChannel::compute`] with `settings` and returns a [`Solution`] with the method
+    /// name `steady_fully_developed_laminar_channel_cell_centered_fvm` and the convergence trace of
+    /// the momentum stage. If that stage converged, the balances and quantities of
+    /// [`LaminarChannel::add_outputs`] are included; otherwise both are empty. The model is not
+    /// validated again here; call [`LaminarChannel::validate`] first. Errors are those of `compute`
+    /// and `add_outputs`.
     pub fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
         let (convergence, state) = self.compute(settings)?;
         let mut result = Solution::new(Self::METHOD, vec![convergence]);
@@ -229,6 +329,19 @@ impl LaminarChannel {
     }
 
     /// Solve the hydraulic stage of a validated channel model.
+    ///
+    /// Discretises `−μ u'' = Δp / L` across the gap with cell-centred finite volumes and a no-slip
+    /// wall at both ends, and solves the system by Jacobi-preconditioned conjugate gradient under
+    /// `settings`. The residual is reported in Pa. With a pressure drive the stage is named
+    /// `axial_momentum`. With a volume-flow drive the stage `unit_gradient_axial_momentum` solves
+    /// for a pressure gradient of 1 Pa/m; velocity and pressure loss are then scaled so that the
+    /// discrete flow integral equals the prescribed rate, and the trace describes the unit-gradient
+    /// system.
+    ///
+    /// Returns the convergence trace and, only when the stage converged, the [`FlowState`]. Returns
+    /// [`Error::InvalidModel`] when the unit-gradient flow response, the computed volume flow or
+    /// the pressure loss is not positive and finite, or the inlet absolute pressure is not finite,
+    /// and [`Error::NonFiniteResult`] when the mass flow is not positive and finite.
     pub fn compute(
         &self,
         settings: LinearSettings,
@@ -341,6 +454,28 @@ impl LaminarChannel {
         Ok((convergence, Some(state)))
     }
 
+    /// Adds the channel balances and every channel quantity of a converged flow state to `result`.
+    ///
+    /// Two balances are appended, each with the signed sum of its terms as imbalance:
+    ///
+    /// - `channel_mass` in kg/s, with `inflow` positive and `outflow` negative;
+    /// - `channel_axial_momentum` in N, with `pressure_force` (the pressure loss times width times
+    ///   gap), `lower_wall_drag` for the wall at the first mesh vertex and `upper_wall_drag` for
+    ///   the wall at the last.
+    ///
+    /// All entries of [`LaminarChannel::OUTPUTS`] are inserted:
+    ///
+    /// - `axial_velocity` in m/s at the cell centres in mesh order, positioned at mid-length in
+    ///   global coordinates;
+    /// - `volume_flow_rate` in m^3/s, `mass_flow_rate` in kg/s and `pressure_loss` in Pa as
+    ///   scalars;
+    /// - `channel_reynolds` with unit `1`: mean velocity times the hydraulic diameter `2 * gap_m`,
+    ///   divided by the kinematic viscosity;
+    /// - `absolute_pressure` in Pa for the inlet and outlet regions;
+    /// - `wall_drag` in N for the two wall regions: the axial force of each wall on the fluid,
+    ///   negative for flow in the positive axial direction.
+    ///
+    /// Returns [`Error::NonFiniteResult`] if the sum of a balance is not finite.
     pub fn add_outputs(
         &self,
         state: FlowState,

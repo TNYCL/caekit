@@ -1,3 +1,9 @@
+//! The `caekit` command-line tool: validates and solves a model file and writes the check
+//! or the run report as JSON to standard output.
+//!
+//! Exit code 0 means a valid model or a converged run, 2 a run that stopped without
+//! convergence (the report is still written), and 1 an input, calculation-range or I/O error.
+
 use std::error::Error;
 use std::io::{self, Write};
 use std::process::ExitCode;

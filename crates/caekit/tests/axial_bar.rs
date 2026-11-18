@@ -1,3 +1,6 @@
+//! Axial bar: the analytical tension case, rigid translation, nonzero displacement
+//! conditions, model identity versus execution outcome, and rejected inputs.
+
 mod common;
 
 use caekit::physics::axial_bar::BarBoundary;

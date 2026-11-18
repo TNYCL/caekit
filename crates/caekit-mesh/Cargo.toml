@@ -6,7 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Engineering mesh geometry, boundaries, and quality checks for CAEKit"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 caekit-types.workspace = true
 serde.workspace = true
+
+[lints]
+workspace = true

@@ -1,3 +1,7 @@
+//! Thermoelastic solid: free and restrained thermal expansion, loads resolved at the scale
+//! of the external load, refinement under a temperature gradient, combined mechanical loads,
+//! recovery of plain mechanics, and stage traces at an iteration limit.
+
 #[path = "common/block.rs"]
 mod block;
 mod common;

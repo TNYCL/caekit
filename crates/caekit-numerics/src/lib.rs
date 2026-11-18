@@ -4,11 +4,23 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+/// Stopping settings of the iterative linear solver, read from a model's `linear_solver` object.
+///
+/// A solve converges when the 2-norm of its residual is at most
+/// `max(absolute_residual_tolerance, relative_residual_tolerance * ‖b‖₂)`, where `b` is the
+/// right-hand side of the solved system. In JSON all three keys are required when the object is
+/// given and unknown keys are rejected. The [`Default`] values are `1e-10`, `0` and `20000`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LinearSettings {
+    /// Dimensionless factor that multiplies the 2-norm of the right-hand side to form the residual
+    /// threshold. Must be greater than zero and less than one.
     pub relative_residual_tolerance: f64,
+    /// Lower bound of the residual threshold, in the residual unit of the solved equations (for
+    /// example W for heat conduction, N for elasticity). Must be nonnegative and finite; zero
+    /// leaves the relative tolerance in control.
     pub absolute_residual_tolerance: f64,
+    /// Maximum number of solver iterations. Must be positive.
     pub max_iterations: usize,
 }
 
@@ -22,9 +34,14 @@ impl Default for LinearSettings {
     }
 }
 
+/// The first [`LinearSettings`] field rejected by [`LinearSettings::validate`].
+///
+/// Displayed as `field: message`.
 #[derive(Debug)]
 pub struct InvalidLinearSetting {
+    /// Name of the rejected field, identical to its JSON key.
     pub field: &'static str,
+    /// The requirement the value violates, for example `must be positive`.
     pub message: &'static str,
 }
 
@@ -37,6 +54,11 @@ impl std::fmt::Display for InvalidLinearSetting {
 impl std::error::Error for InvalidLinearSetting {}
 
 impl LinearSettings {
+    /// Checks the three settings and returns the first violation.
+    ///
+    /// In order: `relative_residual_tolerance` must lie strictly between zero and one,
+    /// `absolute_residual_tolerance` must be nonnegative and finite, and `max_iterations` must be
+    /// positive. NaN is rejected for both tolerances.
     pub fn validate(self) -> Result<(), InvalidLinearSetting> {
         if !(0.0 < self.relative_residual_tolerance && self.relative_residual_tolerance < 1.0) {
             return Err(InvalidLinearSetting {
@@ -64,21 +86,47 @@ impl LinearSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
+    /// The residual norm evaluated from the returned iterate is at or below the threshold. Written
+    /// `converged` in JSON.
     Converged,
+    /// The iteration limit was reached with the residual still above the threshold. Written
+    /// `iteration_limit` in JSON.
     IterationLimit,
+    /// The stage could not proceed or its result could not be accepted: invalid input to the solve,
+    /// a non-finite or nonpositive scalar inside the iteration, or a true residual that stagnates
+    /// above the threshold at the binary64 rounding scale. Written `numerical_breakdown` in JSON.
     NumericalBreakdown,
 }
 
+/// Convergence record of one numerical stage, an entry of the `convergence` list of a run report.
+///
+/// All residual norms are 2-norms in `residual_unit`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Convergence {
+    /// Name of the stage, chosen by the calling solver, for example `solid_heat_conduction`.
     pub stage: String,
+    /// Identifier of the iterative method, for example `jacobi_preconditioned_conjugate_gradient`.
     pub algorithm: String,
+    /// Why the stage stopped.
     pub stop_reason: StopReason,
+    /// Number of iterations carried out; zero when the initial residual already met the threshold
+    /// or the stage broke down before iterating.
     pub iterations: usize,
+    /// Unit of the residual norms and of the threshold, as text, for example `W`, `N` or `Pa`.
     pub residual_unit: String,
+    /// Residual norm at or below which the stage counts as converged: the larger of the absolute
+    /// tolerance and the relative tolerance times the initial residual norm. `None` (JSON `null`)
+    /// when the stage broke down before the threshold was formed.
     pub residual_threshold: Option<f64>,
+    /// Residual norm before the first iteration, followed by the norm after each iteration that
+    /// produced a finite one. In the conjugate gradient solve the later entries are norms of the
+    /// recursively updated residual, which can drift from `b − A x`.
     pub residual_l2_history: Vec<f64>,
+    /// Residual norm evaluated directly from the returned iterate, `‖b − A x‖₂` for a linear solve.
+    /// `None` (JSON `null`) when it was not evaluated or is not finite.
     pub final_true_residual_l2: Option<f64>,
+    /// Explanation of a failure when the solver has one to give. The key is omitted from JSON when
+    /// absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<String>,
 }
@@ -90,6 +138,7 @@ pub struct SparseAssembly {
 }
 
 impl SparseAssembly {
+    /// Creates a square matrix of `size` rows and columns with no entries.
     pub fn new(size: usize) -> Self {
         Self {
             rows: vec![BTreeMap::new(); size],
@@ -97,6 +146,11 @@ impl SparseAssembly {
         }
     }
 
+    /// Adds `entry` to the coefficient at zero-based `row` and `column`; repeated calls for the
+    /// same position accumulate.
+    ///
+    /// An index outside the matrix does not panic. It marks the assembly invalid, and
+    /// [`SparseAssembly::solve`] then reports a numerical breakdown.
     pub fn add(&mut self, row: usize, column: usize, entry: f64) {
         if row >= self.rows.len() || column >= self.rows.len() {
             self.invalid = true;
@@ -187,6 +241,10 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
+/// Returns the Euclidean norm of `values`, which is zero for an empty slice.
+///
+/// The norm is accumulated with `f64::hypot` instead of summing squares, which avoids overflow and
+/// underflow of the squared entries.
 pub fn norm(values: &[f64]) -> f64 {
     values.iter().fold(0.0_f64, |norm, x| norm.hypot(*x))
 }
@@ -333,6 +391,13 @@ pub struct ConstrainedSystem {
 }
 
 impl ConstrainedSystem {
+    /// Starts a system with one degree of freedom per entry of `prescribed`.
+    ///
+    /// `Some(value)` fixes that degree of freedom to `value` and `None` leaves it free. `loads` is
+    /// the right-hand side for all degrees of freedom in the same zero-based order; its entries at
+    /// prescribed degrees of freedom do not enter the reduced equations. If `loads` and
+    /// `prescribed` differ in length, or any load or prescribed value is not finite, the system is
+    /// marked invalid and [`ConstrainedSystem::solve`] reports a numerical breakdown.
     pub fn new(prescribed: Vec<Option<f64>>, loads: &[f64]) -> Self {
         let mut rhs = Vec::new();
         let reduced_index = prescribed
@@ -363,6 +428,13 @@ impl ConstrainedSystem {
         }
     }
 
+    /// Adds `entry` to the coefficient of the full system at zero-based `row` and `column`;
+    /// repeated calls accumulate.
+    ///
+    /// An entry with a free row and a free column goes to the reduced matrix. With a free row and a
+    /// prescribed column, `entry` times the prescribed value is subtracted from the right-hand
+    /// side. Entries in a prescribed row are dropped because that equation is eliminated. An
+    /// out-of-range index or a non-finite `entry` does not panic; it marks the system invalid.
     pub fn add(&mut self, row: usize, column: usize, entry: f64) {
         if row >= self.reduced_index.len()
             || column >= self.reduced_index.len()
@@ -379,6 +451,15 @@ impl ConstrainedSystem {
         }
     }
 
+    /// Solves the reduced equations and returns the values of all degrees of freedom.
+    ///
+    /// The free equations are passed to [`SparseAssembly::solve`] with `settings`; `stage` and
+    /// `residual_unit` label the returned [`Convergence`], whose residuals refer to the free
+    /// equations only. The returned vector follows the original ordering: prescribed entries hold
+    /// their prescribed values and free entries hold the solver's iterate, which is a solution only
+    /// if the stop reason is [`StopReason::Converged`]. An invalid system or invalid settings give
+    /// a numerical breakdown at iteration zero with the free entries left at zero. A valid system
+    /// without free degrees of freedom converges in zero iterations.
     pub fn solve(
         self,
         settings: LinearSettings,

@@ -11,23 +11,52 @@ use caekit_types::error::{nonempty, positive};
 use caekit_types::{Balance, Error, MaterialSource};
 use interface::overlap;
 
+/// Conductive wall of the `cooling_channel` case, read from `physics.wall` in the JSON model.
+///
+/// The wall is a row of axial panels, one per cell of `axial_mesh`. Each panel conducts heat in one
+/// dimension from a hot face held at a uniform temperature to the wetted face, with the condensed
+/// conductance `k * panel area / thickness_m`. There is no axial conduction between panels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConductiveWall {
+    /// Identity of the wall geometry that the meshes and regions belong to. It is not checked by
+    /// [`ConductiveWall::check_meshes`]; the cooling-channel case validates it.
     pub identity: GeometryRevision,
+    /// Wall thickness from the hot face to the wetted face, in m. Must be positive and finite.
     pub thickness_m: f64,
+    /// Wall material. Its constant conductivity applies to the whole wall.
     pub material: ConductiveMaterial,
+    /// Partition of the wall into panels along the channel axis, in m. The vertices must increase
+    /// strictly from exactly 0 to exactly the channel length. The partition may differ from the
+    /// coolant's axial mesh.
     pub axial_mesh: LineMesh,
+    /// Through-thickness coordinates in m, increasing strictly from exactly 0 at the hot face
+    /// (`start_region`) to exactly `thickness_m` at the wetted face (`end_region`). The energy
+    /// solve does not use the interior vertices; the cooling-channel case samples the reconstructed
+    /// wall temperature at them.
     pub thickness_mesh: LineMesh,
+    /// Uniform temperature prescribed on the hot face. Its `region` must equal
+    /// `thickness_mesh.start_region`.
     pub hot_boundary: TemperatureBoundary,
 }
 
+/// Isotropic solid with a constant thermal conductivity, as written in the JSON model.
+///
+/// Used for the cooling-channel wall (`physics.wall.material`), for homogeneous conduction
+/// (`physics.thermal.material`) and as an entry of `physics.thermal.materials` in the multimaterial
+/// case.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConductiveMaterial {
+    /// Material identifier. Must contain a non-whitespace character. In a multimaterial model it
+    /// must be unique in the material list and is the key that `volume_regions[].material_id`
+    /// refers to.
     pub id: String,
+    /// Thermal conductivity `k` in W/(m·K), independent of temperature and direction. Must be
+    /// positive and finite.
     #[serde(deserialize_with = "deserialize_conductivity")]
     pub thermal_conductivity_w_m_k: f64,
+    /// Citation and usage terms of the conductivity value. Both must be nonempty.
     pub source: MaterialSource,
 }
 
@@ -36,27 +65,62 @@ fn deserialize_conductivity<'de, D: serde::Deserializer<'de>>(reader: D) -> Resu
         .map_err(|error| serde::de::Error::custom(format!("thermal_conductivity_w_m_k: {error}")))
 }
 
+/// Coolant stream of the `cooling_channel` case, read from `physics.coolant` in the JSON model.
+///
+/// The stream carries heat by axial advection of bulk enthalpy with a constant specific heat. Each
+/// cell of `axial_mesh` is a finite volume with a first-order upwind energy flux. The mass flow is
+/// supplied by the caller.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Coolant {
+    /// Specific heat capacity of the coolant in J/(kg·K), constant along the channel. Must be
+    /// positive and finite.
     pub specific_heat_j_kg_k: f64,
+    /// Citation and usage terms of the specific heat value. Both must be nonempty.
     pub source: MaterialSource,
+    /// Finite-volume cells of the stream along the channel axis, in m, ordered from the inlet
+    /// (`start_region`) to the outlet (`end_region`). It is not checked by
+    /// [`Coolant::validate_properties`]; the cooling-channel case requires it to span 0 to the
+    /// channel length and to use the hydraulic inlet and outlet region names.
     pub axial_mesh: LineMesh,
+    /// Bulk temperature of the coolant entering the first cell. Its `region` must equal the
+    /// hydraulic inlet region.
     pub inlet: TemperatureBoundary,
 }
 
+/// Absolute temperature prescribed on one named boundary region.
+///
+/// Used for the wall's hot face (`physics.wall.hot_boundary`) and the coolant inlet
+/// (`physics.coolant.inlet`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TemperatureBoundary {
+    /// Name of the boundary region that carries the temperature. It must equal the region the
+    /// owning object expects: the start region of the wall thickness mesh, or the hydraulic inlet
+    /// region.
     pub region: String,
+    /// Absolute temperature in K. Must be positive and finite.
     pub temperature_k: f64,
 }
 
+/// Stopping settings for the partitioned wall-coolant energy iteration, read from the optional
+/// `physics.coupling_solver` object in the JSON model.
+///
+/// The iteration converges when the L2 norm of the wall-panel and coolant-cell energy residuals, in
+/// W, is at most `max(absolute_residual_tolerance_w, relative_residual_tolerance * initial_norm)`.
+/// The initial norm is evaluated with every wetted-face wall temperature and coolant temperature
+/// equal to the inlet temperature. When the object is omitted the [`Default`] values apply: 1e-10,
+/// 1e-10 W and 1000 iterations. When it is present all three fields are required.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CouplingSettings {
+    /// Factor applied to the initial residual norm to form the threshold. Must be greater than 0
+    /// and less than 1.
     pub relative_residual_tolerance: f64,
+    /// Lower bound of the threshold, in W. Must be finite and nonnegative.
     pub absolute_residual_tolerance_w: f64,
+    /// Maximum number of sweeps; one sweep updates every wall panel and then every coolant cell.
+    /// Must be at least 1. Reaching it without convergence stops with the `iteration_limit` reason.
     pub max_iterations: usize,
 }
 
@@ -71,6 +135,17 @@ impl Default for CouplingSettings {
 }
 
 impl ConductiveWall {
+    /// Validates the wall's thickness, material, meshes and hot boundary for a channel of length
+    /// `length` in m.
+    ///
+    /// Checks that `thickness_m` and the conductivity are positive and finite, that the material
+    /// ID, citation and usage terms are nonempty, that `axial_mesh` spans 0 to `length` and
+    /// `thickness_mesh` spans 0 to `thickness_m` with at least two strictly increasing vertices and
+    /// distinct nonempty endpoint region names, and that `hot_boundary` names
+    /// `thickness_mesh.start_region` with a positive finite temperature. `identity` is not checked.
+    ///
+    /// Returns the metrics of the axial mesh and of the thickness mesh, in that order, or the first
+    /// [`Error::InvalidModel`] found, with a path under `physics.wall`.
     pub fn check_meshes(&self, length: f64) -> Result<[MeshMetrics; 2], Error> {
         positive("physics.wall.thickness_m", self.thickness_m)?;
         nonempty("physics.wall.material.id", &self.material.id)?;
@@ -96,6 +171,12 @@ impl ConductiveWall {
 }
 
 impl Coolant {
+    /// Validates the coolant's inlet condition and properties. `axial_mesh` is not checked.
+    ///
+    /// Requires `inlet.region` to equal `inlet_region` (the hydraulic inlet region of the channel),
+    /// the inlet temperature and the specific heat to be positive and finite, and the citation and
+    /// usage terms to be nonempty. Returns the first [`Error::InvalidModel`] found, with a path
+    /// under `physics.coolant`.
     pub fn validate_properties(&self, inlet_region: &str) -> Result<(), Error> {
         self.inlet.validate("physics.coolant.inlet", inlet_region)?;
         positive(
@@ -119,6 +200,11 @@ impl TemperatureBoundary {
 }
 
 impl CouplingSettings {
+    /// Checks each setting against its allowed range.
+    ///
+    /// Returns an [`Error::InvalidModel`] with a path under `physics.coupling_solver` for the first
+    /// violation: a relative tolerance outside the open interval (0, 1), an absolute tolerance that
+    /// is negative or not finite, or a zero iteration limit.
     pub fn validate(self) -> Result<(), Error> {
         if !(0.0 < self.relative_residual_tolerance && self.relative_residual_tolerance < 1.0) {
             return Err(Error::invalid(
@@ -146,15 +232,43 @@ impl CouplingSettings {
 
 /// Thermal state in mesh order, with temperatures expressed relative to the coolant inlet.
 pub struct ChannelEnergy {
+    /// Wall temperature at the wetted face minus the coolant inlet temperature, in K, one value per
+    /// cell of the wall's axial mesh.
     pub wall_temperature_offset_k: Vec<f64>,
+    /// Coolant bulk temperature minus the inlet temperature, in K, one value per cell of the
+    /// coolant's axial mesh from inlet to outlet. The last value is the outlet temperature rise.
     pub fluid_temperature_offset_k: Vec<f64>,
+    /// Heat flux leaving the wetted face of each wall panel, in W/m²: the panel's heat rate to the
+    /// coolant divided by its area (channel width times cell length). Positive toward the coolant.
     pub wall_heat_flux_w_m2: Vec<f64>,
+    /// Total heat rate entering the coolant through the film, in W, summed over all wall-coolant
+    /// overlaps.
     pub heat_to_coolant_w: f64,
+    /// Global energy balances in W, in the order `wall_energy`, `interface_energy`,
+    /// `coolant_energy` and `system_energy`. Each holds signed terms and their sum as the
+    /// imbalance.
     pub balances: Vec<Balance>,
 }
 
 /// Solve a validated wall and coolant with a supplied mass flow and film coefficient.
 /// Their axial meshes must cover the same interval.
+///
+/// `width_m` is the channel width in m, `mass_flow_kg_s` the coolant mass flow in kg/s and
+/// `film_coefficient_w_m2_k` the fluid-side film coefficient `h` in W/(m²·K). Each overlap of a
+/// wall panel and a coolant cell transfers `h * width_m * overlap_length * (T_wall - T_fluid)`, the
+/// same heat rate on both sides. Partitioned Gauss-Seidel alternates the wall-panel update with a
+/// downstream sweep of the coolant cells, starting with every wetted-face wall temperature and
+/// coolant temperature at the inlet temperature.
+///
+/// The returned [`Convergence`] is the `coupled_wall_coolant_energy` stage with residuals in W; see
+/// [`CouplingSettings`] for its threshold. The [`ChannelEnergy`] is `Some` only when the stage
+/// converged. It is `None` at the iteration limit, or with the `numerical_breakdown` reason when a
+/// residual is not finite.
+///
+/// Returns an error if the heat capacity flow rate `mass_flow_kg_s * specific_heat_j_kg_k`, a
+/// wall-panel conductance or the film conductance of any overlap is not positive and finite, or if
+/// a sum of conductances or an energy balance is not finite. `settings` is used as given; validate
+/// it with [`CouplingSettings::validate`] first.
 pub fn solve_channel_energy(
     wall: &ConductiveWall,
     coolant: &Coolant,

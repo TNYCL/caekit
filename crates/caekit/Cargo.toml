@@ -6,7 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Multiphysics engineering simulation"
-readme = "../../README.md"
+readme = "README.md"
+# The tests read the reference models in /examples, which are outside the package.
+exclude = ["/tests"]
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 caekit-fluids.workspace = true
@@ -19,3 +23,6 @@ serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error.workspace = true
 sha2.workspace = true
+
+[lints]
+workspace = true

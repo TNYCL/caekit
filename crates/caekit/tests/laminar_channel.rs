@@ -1,3 +1,6 @@
+//! Laminar channel: the analytical pressure loss and balances, second-order refinement, both
+//! driving modes, mixed pressure references, and rejected assignments.
+
 mod common;
 
 use caekit::physics::laminar_channel::{FlowDrive, LaminarChannel, Pressure, PressureAtPort};

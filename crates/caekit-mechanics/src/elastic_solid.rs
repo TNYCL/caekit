@@ -11,13 +11,30 @@ use caekit_types::{Error, MaterialSource};
 
 use caekit_types::Pressure;
 
+/// Static linear elasticity of one connected isotropic solid (the `elastic_solid` physics case).
+///
+/// Small-strain equilibrium is solved for the displacement of every mesh vertex with linear,
+/// constant-strain tetrahedra. A converged solve reports, for each global axis, a force balance in
+/// N and a moment balance in N m between the applied loads and the support reactions, with moments
+/// taken about the first mesh vertex.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ElasticSolid {
+    /// Identifier and revision of the geometry the mesh and conditions belong to; both strings must
+    /// be nonempty.
     pub geometry: GeometryRevision,
+    /// Tetrahedral mesh in global Cartesian coordinates in m, with zero-based connectivity and
+    /// every exterior triangle assigned to one named region. Boundary conditions refer to these
+    /// region names.
     pub mesh: TetraMesh,
+    /// Isotropic elastic constants of the whole solid.
     pub material: IsotropicElasticMaterial,
+    /// Displacement constraints and surface loads on named exterior regions of the mesh. The
+    /// prescribed displacement components together must restrain all six rigid-body modes. Traction
+    /// and pressure loads on the same faces add, and faces without a load are traction-free.
     pub boundary_conditions: Vec<SolidBoundary>,
+    /// Uniform body force per unit volume in N/m³ as global `[x, y, z]` components; each must be
+    /// finite. Defaults to zero when omitted.
     #[serde(default)]
     pub body_force_n_m3: [f64; 3],
 }
@@ -26,20 +43,36 @@ pub struct ElasticSolid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SolidMechanics {
+    /// Isotropic elastic constants of the whole solid.
     pub material: IsotropicElasticMaterial,
+    /// Displacement constraints and surface loads on named exterior regions of the mesh. The
+    /// prescribed displacement components together must restrain all six rigid-body modes. Traction
+    /// and pressure loads on the same faces add, and faces without a load are traction-free.
     pub boundary_conditions: Vec<SolidBoundary>,
+    /// Uniform body force per unit volume in N/m³ as global `[x, y, z]` components; each must be
+    /// finite. Defaults to zero when omitted.
     #[serde(default)]
     pub body_force_n_m3: [f64; 3],
 }
 
+/// Isotropic thermal expansion of a solid.
+///
+/// A temperature `T` produces the free strain `α (T − T_ref)` on each of the three normal strain
+/// components and no shear strain.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThermalExpansion {
+    /// Stress-free reference temperature `T_ref` in K; positive and finite.
     pub reference_temperature_k: f64,
+    /// Linear expansion coefficient `α` in 1/K; finite, and may be zero or negative.
     pub linear_expansion_coefficient_per_k: f64,
 }
 
 impl ThermalExpansion {
+    /// Checks that the reference temperature is positive and finite and that the coefficient is
+    /// finite.
+    ///
+    /// A violation is an [`Error::InvalidModel`] with a path under `physics.expansion`.
     pub fn validate(self) -> Result<(), Error> {
         positive(
             "physics.expansion.reference_temperature_k",
@@ -52,30 +85,61 @@ impl ThermalExpansion {
     }
 }
 
+/// Linear isotropic elastic material given by Young's modulus and Poisson's ratio.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct IsotropicElasticMaterial {
+    /// Label of the material; must contain a non-whitespace character. It does not enter the
+    /// calculation.
     pub id: String,
+    /// Young's modulus in Pa; positive and finite.
     pub young_modulus_pa: f64,
+    /// Poisson's ratio, dimensionless; strictly between −1 and 0.5. The shear modulus derived from
+    /// it and the modulus must be positive and finite, and the first Lamé parameter finite.
     pub poisson_ratio: f64,
+    /// Citation and usage terms of the property values; both strings must be nonempty.
     pub source: MaterialSource,
 }
 
+/// Displacement constraint or surface load on a named exterior region of a solid mesh.
+///
+/// In JSON the variant is selected by the `kind` key in snake_case (`displacement`, `traction` or
+/// `pressure`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SolidBoundary {
+    /// Prescribes displacement components in m along the global x, y and z axes at every vertex of
+    /// the region's faces.
+    ///
+    /// At least one of the three components must be given and given values must be finite. A vertex
+    /// shared with another displacement condition must receive the same value for the same
+    /// component.
     Displacement {
+        /// Name of an exterior face region of the mesh.
         region: String,
         /// A null component remains free.
         components_m: [Option<f64>; 3],
     },
+    /// Applies a uniform surface traction vector to the region's faces.
     Traction {
+        /// Name of an exterior face region of the mesh.
         region: String,
+        /// Traction, a force per unit area, in Pa as global `[x, y, z]` components; each must be
+        /// finite. The direction is fixed and does not follow the face normals.
         components_pa: [f64; 3],
     },
+    /// Applies a pressure load normal to the region's faces.
+    ///
+    /// The traction on a face with outward unit normal `n` is `−(applied − ambient) n`, so a
+    /// positive pressure difference pushes the surface into the solid.
     Pressure {
+        /// Name of an exterior face region of the mesh.
         region: String,
+        /// Pressure acting on the region, absolute or gauge with an explicit absolute reference;
+        /// its absolute value must be positive and finite.
         applied: Pressure,
+        /// Pressure subtracted from `applied`, subject to the same checks. Only the difference
+        /// loads the solid, and it must be finite.
         ambient: Pressure,
     },
 }
@@ -136,6 +200,10 @@ struct ElasticInputs<'a> {
     path: &'static str,
 }
 
+/// Validated mechanical inputs bound to a checked tetrahedral mesh, ready to solve.
+///
+/// Created by [`SolidMechanics::prepare`]. It borrows the mesh, its checked topology and the
+/// inputs, and follows the vertex and cell order of that mesh.
 pub struct PreparedElasticSolid<'a> {
     inputs: ElasticInputs<'a>,
     mesh: &'a TetraMesh,
@@ -193,6 +261,13 @@ impl ThermalStrain {
 }
 
 impl ElasticSolid {
+    /// Quantities this case can report.
+    ///
+    /// `displacement_vector` in m and `nodal_reaction` in N are global vectors at the mesh
+    /// vertices. A reaction is the force a support exerts on the solid and is zero on unconstrained
+    /// components. `cauchy_stress`, a global tensor with tension positive, and `von_mises_stress`,
+    /// both in Pa, are sampled at the cell centroids. `elastic_energy` is the strain energy of the
+    /// whole solid in J.
     pub const OUTPUTS: &[Output] = &[
         Output::DisplacementVector,
         Output::CauchyStress,
@@ -202,6 +277,16 @@ impl ElasticSolid {
     ];
     const METHOD: &str = "static_small_strain_isotropic_p1_tetrahedral_fem";
 
+    /// Checks the mesh, geometry revision, material, body force and boundary conditions and returns
+    /// the mesh metrics.
+    ///
+    /// Fails with [`Error::InvalidModel`] for an invalid mesh topology or region assignment, an
+    /// empty geometry, material or source string, a modulus that is not positive and finite, a
+    /// Poisson ratio outside the open interval from −1 to 0.5, a non-finite load or displacement,
+    /// an unknown exterior region, a displacement condition without a component, conflicting
+    /// displacements at a shared vertex, or constraints that leave a rigid-body mode free. Paths of
+    /// model fields start with `physics.`. Fails with [`Error::InsufficientMemory`] if the
+    /// constraint storage cannot be allocated.
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
         let mesh = self.checked_mesh()?;
         self.inputs().prepare(&mesh)?;
@@ -218,6 +303,13 @@ impl ElasticSolid {
             .map(|(_, result)| result)
     }
 
+    /// Validates and solves the case and also returns the metrics of the checked mesh.
+    ///
+    /// `outputs` selects which of the displacement, reaction, stress and von Mises fields are
+    /// built. The strain energy and the force and moment balances are always produced for a
+    /// converged solve. If the linear solve, with residuals in N, does not converge, the solution
+    /// holds only its convergence trace. Errors are those of [`ElasticSolid::validate`], and
+    /// [`Error::NonFiniteResult`] if a balance sum is not finite.
     pub fn solve_with_metrics(
         &self,
         settings: LinearSettings,
@@ -248,6 +340,10 @@ impl ElasticSolid {
 }
 
 impl SolidMechanics {
+    /// Validates these inputs against a checked mesh and binds them to it for solving.
+    ///
+    /// The checks are those of [`ElasticSolid::validate`] for the material, body force and boundary
+    /// conditions, with paths of model fields under `physics.mechanical`.
     pub fn prepare<'a>(
         &'a self,
         mesh: &'a CheckedTetraMesh<'a>,

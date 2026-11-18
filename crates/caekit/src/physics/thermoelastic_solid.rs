@@ -9,13 +9,28 @@ use caekit_numerics::{Convergence, LinearSettings, StopReason};
 use caekit_thermal::heat_conduction::{PreparedConduction, SolidThermal};
 use caekit_types::{Error, Output, Solution};
 
+/// Steady heat conduction followed by linear elasticity with thermal strain on one tetrahedral mesh
+/// (the `thermoelastic_solid` physics case).
+///
+/// The coupling is one-way: the computed vertex temperatures load the mechanical stage through the
+/// isotropic thermal strain, and the deformation does not change the temperatures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThermoelasticSolid {
+    /// Identifier and revision of the geometry shared by both stages; both strings must be
+    /// nonempty.
     pub geometry: GeometryRevision,
+    /// Tetrahedral mesh shared by both stages, in global Cartesian coordinates in m. Thermal and
+    /// mechanical conditions refer to the names of its exterior face regions.
     pub mesh: TetraMesh,
+    /// Thermal material, exterior thermal conditions and optional volumetric heat source of the
+    /// conduction stage.
     pub thermal: SolidThermal,
+    /// Elastic material, displacement constraints, surface loads and optional body force of the
+    /// mechanical stage.
     pub mechanical: SolidMechanics,
+    /// Stress-free reference temperature and linear expansion coefficient that turn temperature
+    /// into thermal strain.
     pub expansion: ThermalExpansion,
     /// Independent residual settings for heat conduction, in watts.
     #[serde(default)]
@@ -25,12 +40,27 @@ pub struct ThermoelasticSolid {
 impl ThermoelasticSolid {
     const METHOD: &str = "one_way_steady_linear_thermoelastic_p1_tetrahedral_fem";
 
+    /// Checks the geometry revision, the shared mesh, the thermal solver settings, the expansion
+    /// data and the inputs of both stages, and returns the mesh metrics.
+    ///
+    /// A violation is an [`Error::InvalidModel`]; paths of model fields start with `physics.`.
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
         let mesh = self.checked_mesh()?;
         self.prepare(&mesh)?;
         Ok(mesh.into_metrics())
     }
 
+    /// Validates the case, solves heat conduction and then mechanical equilibrium, and returns the
+    /// mesh metrics with the combined solution.
+    ///
+    /// The conduction stage uses `thermal_solver` with residuals in W and the mechanical stage uses
+    /// `mechanical_settings` with residuals in N. `outputs` selects the optional fields of both
+    /// stages. The mechanical stage runs only after the conduction stage has converged. With
+    /// nonzero thermal strain it also stops with `numerical_breakdown` when, on an externally
+    /// loaded axis, the recovered support reactions do not balance the applied forces within a
+    /// tolerance derived from `mechanical_settings`. The solution lists the convergence traces of
+    /// the stages that ran, in order. Its balances and quantities are those of both stages when
+    /// every stage converged and are empty otherwise.
     pub fn solve(
         &self,
         mechanical_settings: LinearSettings,

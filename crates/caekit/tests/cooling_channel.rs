@@ -1,3 +1,7 @@
+//! Cooling channel: energy balances on nonmatching wall and coolant meshes, first-order
+//! refinement of the outlet temperature, heat transfer in either direction, a coupling that
+//! fails to converge, and rejected assignments.
+
 mod common;
 
 use caekit::physics::cooling_channel::CoolingChannel;

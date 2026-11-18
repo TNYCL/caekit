@@ -18,6 +18,12 @@ edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/caekit/caekit"
+keywords = ["cae", "simulation", "fem", "multiphysics", "engineering"]
+categories = ["science", "simulation", "mathematics"]
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
 
 [workspace.dependencies]
 caekit = { path = "crates/caekit", version = "0.1.0" }

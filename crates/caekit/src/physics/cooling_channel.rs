@@ -13,22 +13,50 @@ pub use caekit_thermal::{
     ConductiveMaterial, ConductiveWall, Coolant, CouplingSettings, TemperatureBoundary,
 };
 
+/// Laminar channel flow exchanging heat with a conductive wall (the `cooling_channel` physics
+/// case).
+///
+/// The flow is solved first and supplies the coolant mass flow rate. The wall conducts between a
+/// hot face at uniform temperature and its wetted face, where a prescribed film coefficient
+/// transfers heat to the bulk coolant, which carries it downstream. Temperatures do not feed back
+/// into the flow. A converged solve reports the channel mass and momentum balances and energy
+/// balances in W for the wall, the interface, the coolant and the whole system.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoolingChannel {
+    /// Hydraulic channel, validated under `physics.flow`. Its length and width set the wetted
+    /// interface area, and its inlet and outlet regions name the ends of the coolant mesh.
     pub flow: LaminarChannel,
+    /// Conductive wall. Its axial mesh must span the channel length and its thickness mesh the wall
+    /// thickness, from the hot face to the wetted face. Its geometry `id` must differ from that of
+    /// the flow geometry.
     pub wall: ConductiveWall,
+    /// Coolant specific heat, inlet temperature and axial energy mesh. The mesh must span the
+    /// channel length with the flow's inlet and outlet regions as its start and end regions; it may
+    /// subdivide the length differently from the wall's axial mesh.
     pub coolant: Coolant,
+    /// Thermal connection between the wetted wall face and one plate of the channel.
     pub interface: ThermalConnection,
+    /// Stopping settings of the partitioned wall and coolant energy iteration, with residuals in W.
+    /// Optional in JSON: when omitted the defaults of [`CouplingSettings`] apply, and when present
+    /// all of its fields are required.
     #[serde(default)]
     pub coupling_solver: CouplingSettings,
 }
 
+/// Convective link between the wetted face of the wall and the coolant stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThermalConnection {
+    /// Wall region in contact with the coolant; must be the end region of the wall's thickness
+    /// mesh.
     pub solid_region: String,
+    /// Channel plate the wall is attached to; must be one of the two endpoint regions of the flow's
+    /// transverse mesh. Reported wall temperatures are positioned beyond that plate, outside the
+    /// gap.
     pub fluid_region: String,
+    /// Film coefficient between the wetted face and the bulk coolant in W/(m²·K); positive and
+    /// finite. It is an input and is not derived from the flow solution.
     pub heat_transfer_coefficient_w_m2_k: f64,
 }
 

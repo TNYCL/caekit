@@ -1,4 +1,4 @@
-//! Versioned multiphysics models, checked reference solvers, and reproducible results.
+#![doc = include_str!("../README.md")]
 
 mod model;
 pub mod physics;
