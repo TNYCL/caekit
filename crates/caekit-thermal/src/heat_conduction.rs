@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::ConductiveMaterial;
-use caekit_mesh::tetra::{Tet, TetraTopology, dot};
+use caekit_mesh::tetra::{CheckedTetraMesh, Tet, TetraTopology, dot};
 use caekit_mesh::{GeometryRevision, MeshMetrics, TetraMesh};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason};
 use caekit_types::error::{finite, nonempty, positive};
@@ -79,6 +79,7 @@ impl SolidTemperature {
 }
 
 pub struct PreparedConduction<'a> {
+    mesh: &'a TetraMesh,
     topology: &'a TetraTopology<'a>,
     thermal: &'a SolidThermal,
     conditions: BTreeMap<&'a str, &'a ThermalBoundary>,
@@ -88,9 +89,9 @@ pub struct PreparedConduction<'a> {
 
 impl HeatConduction {
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
-        let topology = self.topology()?;
-        self.thermal.prepare(&topology)?;
-        Ok(topology.metrics)
+        let mesh = self.checked_mesh()?;
+        self.thermal.prepare(&mesh)?;
+        Ok(mesh.into_metrics())
     }
 
     pub fn solve(
@@ -98,14 +99,14 @@ impl HeatConduction {
         settings: LinearSettings,
         outputs: &[Output],
     ) -> Result<(MeshMetrics, Solution<Convergence>), Error> {
-        let topology = self.topology()?;
-        let (solution, _) = self.thermal.prepare(&topology)?.solve(settings, outputs)?;
-        Ok((topology.metrics, solution))
+        let mesh = self.checked_mesh()?;
+        let (solution, _) = self.thermal.prepare(&mesh)?.solve(settings, outputs)?;
+        Ok((mesh.into_metrics(), solution))
     }
 
-    fn topology(&self) -> Result<TetraTopology<'_>, Error> {
+    fn checked_mesh(&self) -> Result<CheckedTetraMesh<'_>, Error> {
         self.geometry.validate("physics.geometry")?;
-        self.mesh.check("physics.mesh")
+        self.mesh.checked("physics.mesh")
     }
 }
 
@@ -119,7 +120,7 @@ impl SolidThermal {
 
     pub fn prepare<'a>(
         &'a self,
-        topology: &'a TetraTopology<'a>,
+        checked: &'a CheckedTetraMesh<'a>,
     ) -> Result<PreparedConduction<'a>, Error> {
         nonempty("physics.thermal.material.id", &self.material.id)?;
         positive(
@@ -134,7 +135,8 @@ impl SolidThermal {
             self.volumetric_heat_source_w_m3,
         )?;
 
-        let mut prescribed = vec![None; topology.mesh().vertices_m.len()];
+        let (mesh, topology) = (checked.mesh(), checked.topology());
+        let mut prescribed = vec![None; mesh.vertices_m.len()];
         let mut conditions = BTreeMap::new();
         let mut fixed_datum = None;
         let mut ambient_datum = None;
@@ -209,6 +211,7 @@ impl SolidThermal {
             )
         })?;
         Ok(PreparedConduction {
+            mesh,
             topology,
             thermal: self,
             conditions,
@@ -232,12 +235,7 @@ impl PreparedConduction<'_> {
             .collect();
         let mut system = ConstrainedSystem::new(prescribed, &loads);
         let k = self.thermal.material.thermal_conductivity_w_m_k;
-        for (tet, nodes) in self
-            .topology
-            .elements
-            .iter()
-            .zip(&self.topology.mesh().cells)
-        {
+        for (tet, nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
             for (a, &row) in nodes.iter().enumerate() {
                 for (b, &column) in nodes.iter().enumerate() {
                     let entry = (tet.volume * dot(tet.gradients[a], tet.gradients[b])) * k;
@@ -298,7 +296,7 @@ impl PreparedConduction<'_> {
                 Quantity::field(
                     "K",
                     SampleLocation::Node,
-                    self.topology.mesh().vertices_m.clone(),
+                    self.mesh.vertices_m.clone(),
                     temperatures_k,
                 ),
             );
@@ -316,12 +314,7 @@ impl PreparedConduction<'_> {
     fn assemble_loads(&self) -> Result<Vec<f64>, Error> {
         let mut loads = vec![0.0; self.prescribed.len()];
         let generation = self.thermal.volumetric_heat_source_w_m3;
-        for (tet, nodes) in self
-            .topology
-            .elements
-            .iter()
-            .zip(&self.topology.mesh().cells)
-        {
+        for (tet, nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
             for &node in nodes {
                 loads[node] += (tet.volume / 4.0) * generation;
             }
@@ -366,12 +359,7 @@ impl PreparedConduction<'_> {
         let mut reactions = vec![0.0; self.prescribed.len()];
         let mut generation_w = 0.0;
         let k = self.thermal.material.thermal_conductivity_w_m_k;
-        for (tet, &nodes) in self
-            .topology
-            .elements
-            .iter()
-            .zip(&self.topology.mesh().cells)
-        {
+        for (tet, &nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
             let flux = heat_flux(tet, k, nodes.map(|node| offsets_k[node]));
             if !flux.iter().all(|component| component.is_finite()) {
                 return Err(nonfinite("solid heat flux"));

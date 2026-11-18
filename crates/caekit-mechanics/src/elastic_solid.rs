@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use caekit_mesh::tetra::{Tet, TetraTopology, cross, dot, subtract};
+use caekit_mesh::tetra::{CheckedTetraMesh, Tet, TetraTopology, cross, dot, subtract};
 use caekit_mesh::{GeometryRevision, MeshMetrics, TetraMesh};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason, norm};
 use caekit_types::error::{finite, nonempty, positive};
@@ -138,6 +138,7 @@ struct ElasticInputs<'a> {
 
 pub struct PreparedElasticSolid<'a> {
     inputs: ElasticInputs<'a>,
+    mesh: &'a TetraMesh,
     topology: &'a TetraTopology<'a>,
     lame: Lame,
     prescribed: Vec<Option<f64>>,
@@ -173,9 +174,9 @@ impl ElasticSolid {
     const METHOD: &str = "static_small_strain_isotropic_p1_tetrahedral_fem";
 
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
-        let topology = self.topology()?;
-        self.inputs().prepare(&topology)?;
-        Ok(topology.metrics)
+        let mesh = self.checked_mesh()?;
+        self.inputs().prepare(&mesh)?;
+        Ok(mesh.into_metrics())
     }
 
     /// Solve a case accepted by `validate` with valid linear solver settings.
@@ -193,18 +194,18 @@ impl ElasticSolid {
         settings: LinearSettings,
         outputs: &[Output],
     ) -> Result<(MeshMetrics, Solution<Convergence>), Error> {
-        let topology = self.topology()?;
+        let mesh = self.checked_mesh()?;
         let result = self
             .inputs()
-            .prepare(&topology)?
+            .prepare(&mesh)?
             .solve(settings, outputs, None)?;
-        Ok((topology.metrics, result))
+        Ok((mesh.into_metrics(), result))
     }
 
-    fn topology(&self) -> Result<TetraTopology<'_>, Error> {
-        let topology = self.mesh.check("physics.mesh")?;
+    fn checked_mesh(&self) -> Result<CheckedTetraMesh<'_>, Error> {
+        let mesh = self.mesh.checked("physics.mesh")?;
         self.geometry.validate("physics.geometry")?;
-        Ok(topology)
+        Ok(mesh)
     }
 
     fn inputs(&self) -> ElasticInputs<'_> {
@@ -220,7 +221,7 @@ impl ElasticSolid {
 impl SolidMechanics {
     pub fn prepare<'a>(
         &'a self,
-        topology: &'a TetraTopology<'a>,
+        mesh: &'a CheckedTetraMesh<'a>,
     ) -> Result<PreparedElasticSolid<'a>, Error> {
         ElasticInputs {
             material: &self.material,
@@ -228,12 +229,12 @@ impl SolidMechanics {
             body_force_n_m3: self.body_force_n_m3,
             path: "physics.mechanical",
         }
-        .prepare(topology)
+        .prepare(mesh)
     }
 }
 
 impl<'a> ElasticInputs<'a> {
-    fn prepare(self, topology: &'a TetraTopology<'a>) -> Result<PreparedElasticSolid<'a>, Error> {
+    fn prepare(self, checked: &'a CheckedTetraMesh<'a>) -> Result<PreparedElasticSolid<'a>, Error> {
         let path = self.path;
         nonempty(&format!("{path}.material.id"), &self.material.id)?;
         positive(
@@ -253,8 +254,9 @@ impl<'a> ElasticInputs<'a> {
         for (i, value) in self.body_force_n_m3.iter().enumerate() {
             finite(&format!("{path}.body_force_n_m3[{i}]"), *value)?;
         }
-        let prescribed = self.prescribed(topology)?;
-        if !supports_all_rigid_modes(&topology.mesh().vertices_m, &prescribed) {
+        let (mesh, topology) = (checked.mesh(), checked.topology());
+        let prescribed = self.prescribed(mesh.vertices_m.len(), topology)?;
+        if !supports_all_rigid_modes(&mesh.vertices_m, &prescribed) {
             return Err(Error::invalid(
                 format!("{path}.boundary_conditions"),
                 "prescribed displacement components must restrain all six rigid-body modes",
@@ -262,17 +264,19 @@ impl<'a> ElasticInputs<'a> {
         }
         Ok(PreparedElasticSolid {
             inputs: self,
+            mesh,
             topology,
             lame,
             prescribed,
         })
     }
 
-    fn prescribed(&self, topology: &TetraTopology<'_>) -> Result<Vec<Option<f64>>, Error> {
-        let dofs = topology
-            .mesh()
-            .vertices_m
-            .len()
+    fn prescribed(
+        &self,
+        node_count: usize,
+        topology: &TetraTopology<'_>,
+    ) -> Result<Vec<Option<f64>>, Error> {
+        let dofs = node_count
             .checked_mul(3)
             .ok_or_else(|| Error::InsufficientMemory {
                 resource: "solid degrees of freedom".to_owned(),
@@ -353,7 +357,7 @@ impl PreparedElasticSolid<'_> {
     ) -> Result<Solution<Convergence>, Error> {
         expansion.validate()?;
         positive("solid temperature datum", datum_k)?;
-        if offsets_k.len() != self.topology.mesh().vertices_m.len()
+        if offsets_k.len() != self.mesh.vertices_m.len()
             || !offsets_k.iter().all(|offset| offset.is_finite())
         {
             return Err(Error::invalid(
@@ -396,8 +400,7 @@ impl PreparedElasticSolid<'_> {
         thermal: Option<&ThermalStrain>,
     ) -> Result<Solution<Convergence>, Error> {
         let topology = self.topology;
-        let mesh = topology.mesh();
-        let vertices = &mesh.vertices_m;
+        let vertices = &self.mesh.vertices_m;
         let loads = self.assemble_forces();
         let prescribed = &self.prescribed;
         let (translation, relative) = crate::relative_constraints::<3>(prescribed);
@@ -406,7 +409,7 @@ impl PreparedElasticSolid<'_> {
             .transpose()?;
         let mut system =
             ConstrainedSystem::new(relative, equivalent_loads.as_deref().unwrap_or(&loads));
-        for (tet, nodes) in topology.elements.iter().zip(&mesh.cells) {
+        for (tet, nodes) in topology.elements.iter().zip(&self.mesh.cells) {
             for (a, node_a) in nodes.iter().enumerate() {
                 for (b, node_b) in nodes.iter().enumerate() {
                     for i in 0..3 {
@@ -439,7 +442,7 @@ impl PreparedElasticSolid<'_> {
         let want_stress = outputs.contains(&Output::CauchyStress);
         let want_von_mises = outputs.contains(&Output::VonMisesStress);
         let mut energy = 0.0;
-        for (tet, &nodes) in topology.elements.iter().zip(&mesh.cells) {
+        for (tet, &nodes) in topology.elements.iter().zip(&self.mesh.cells) {
             let mut strain = strain(tet, nodes.map(|i| u[i]));
             if let Some(thermal) = thermal {
                 let (mean, variance) = thermal.cell_moments(nodes);
@@ -542,12 +545,7 @@ impl PreparedElasticSolid<'_> {
 
     fn add_thermal_loads(&self, loads: &[f64], thermal: &ThermalStrain) -> Result<Vec<f64>, Error> {
         let mut rhs = loads.to_vec();
-        for (tet, &nodes) in self
-            .topology
-            .elements
-            .iter()
-            .zip(&self.topology.mesh().cells)
-        {
+        for (tet, &nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
             let mean = ThermalStrain::mean(nodes.map(|node| thermal.nodal[node]));
             let thermal_normal_stress = thermal.three_bulk_modulus_pa * mean;
             for (a, node) in nodes.into_iter().enumerate() {
@@ -568,7 +566,7 @@ impl PreparedElasticSolid<'_> {
     fn assemble_forces(&self) -> Vec<f64> {
         let topology = self.topology;
         let mut loads = vec![0.0; self.prescribed.len()];
-        for (tet, nodes) in topology.elements.iter().zip(&topology.mesh().cells) {
+        for (tet, nodes) in topology.elements.iter().zip(&self.mesh.cells) {
             for node in nodes {
                 for (i, force) in self.inputs.body_force_n_m3.iter().enumerate() {
                     loads[3 * node + i] += (0.25 * tet.volume) * force;

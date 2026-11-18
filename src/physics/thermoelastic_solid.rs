@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use caekit_mechanics::elastic_solid::{PreparedElasticSolid, SolidMechanics, ThermalExpansion};
-use caekit_mesh::tetra::TetraTopology;
+use caekit_mesh::tetra::CheckedTetraMesh;
 use caekit_mesh::{GeometryRevision, MeshMetrics, TetraMesh};
 use caekit_numerics::{Convergence, LinearSettings, StopReason};
 use caekit_thermal::heat_conduction::{PreparedConduction, SolidThermal};
@@ -26,9 +26,9 @@ impl ThermoelasticSolid {
     const METHOD: &str = "one_way_steady_linear_thermoelastic_p1_tetrahedral_fem";
 
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
-        let topology = self.topology()?;
-        self.prepare(&topology)?;
-        Ok(topology.metrics)
+        let mesh = self.checked_mesh()?;
+        self.prepare(&mesh)?;
+        Ok(mesh.into_metrics())
     }
 
     pub fn solve(
@@ -36,8 +36,8 @@ impl ThermoelasticSolid {
         mechanical_settings: LinearSettings,
         outputs: &[Output],
     ) -> Result<(MeshMetrics, Solution<Convergence>), Error> {
-        let topology = self.topology()?;
-        let (thermal, mechanical) = self.prepare(&topology)?;
+        let mesh = self.checked_mesh()?;
+        let (thermal, mechanical) = self.prepare(&mesh)?;
         let (mut result, temperatures) = thermal.solve(self.thermal_solver, outputs)?;
         result.method = Self::METHOD;
         if let Some(temperatures) = temperatures {
@@ -61,17 +61,17 @@ impl ThermoelasticSolid {
             }
             result.convergence.extend(mechanical.convergence);
         }
-        Ok((topology.metrics, result))
+        Ok((mesh.into_metrics(), result))
     }
 
-    fn topology(&self) -> Result<TetraTopology<'_>, Error> {
+    fn checked_mesh(&self) -> Result<CheckedTetraMesh<'_>, Error> {
         self.geometry.validate("physics.geometry")?;
-        self.mesh.check("physics.mesh")
+        self.mesh.checked("physics.mesh")
     }
 
     fn prepare<'a>(
         &'a self,
-        topology: &'a TetraTopology<'a>,
+        mesh: &'a CheckedTetraMesh<'a>,
     ) -> Result<(PreparedConduction<'a>, PreparedElasticSolid<'a>), Error> {
         self.thermal_solver.validate().map_err(|error| {
             Error::invalid(
@@ -80,9 +80,6 @@ impl ThermoelasticSolid {
             )
         })?;
         self.expansion.validate()?;
-        Ok((
-            self.thermal.prepare(topology)?,
-            self.mechanical.prepare(topology)?,
-        ))
+        Ok((self.thermal.prepare(mesh)?, self.mechanical.prepare(mesh)?))
     }
 }
