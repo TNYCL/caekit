@@ -29,6 +29,20 @@ surfaces are insulated. The thermoelastic case adds `physics.mechanical` and
 `physics.expansion` and uses one shared mesh and geometry revision.
 [Heat conduction](physics/heat-conduction.md) · [Thermoelasticity](physics/thermoelastic-solid.md)
 
+`multimaterial_heat_conduction` extends schema version 1 with a
+`physics.thermal.materials` list and named `volume_regions` with per-cell
+ownership. It adds the optional `interface_heat_rate` output in W with
+explicit directions between volume regions. Its report includes a
+`solid_energy:<region>` balance for each volume. Earlier models continue
+to use their version 1 shape, report fields and typed-model hash.
+[Multimaterial heat conduction](physics/multimaterial-heat-conduction.md)
+
+Rust callers use the same `Model::from_json`, `Model::validate` and
+`caekit::solve` entry points. Update exhaustive matches for
+`Physics::MultimaterialHeatConduction`, `Output::InterfaceHeatRate` and
+`Quantity::ByInterface`. The multimaterial configuration can be constructed
+from `caekit::physics::heat_conduction` types.
+
 The default linear settings are a relative residual tolerance of 1e-10, an
 absolute residual tolerance of zero and an iteration limit of 20,000. For the
 current reference algorithm the threshold is
@@ -42,9 +56,10 @@ the binary64 rounding scale of the residual evaluation, the stage stops with
 `numerical_breakdown`. Its optional `diagnostic` explains the failure and
 the trace retains the measured true residual and requested threshold.
 
-In `heat_conduction`, the top-level `linear_solver` uses W for the absolute
-tolerance. In `thermoelastic_solid`, `linear_solver` uses N and
-`physics.thermal_solver` uses W. Each stage reports its own threshold,
+In `heat_conduction` and `multimaterial_heat_conduction`, the top-level
+`linear_solver` uses W for the absolute tolerance. In
+`thermoelastic_solid`, `linear_solver` uses N and `physics.thermal_solver`
+uses W. Each stage reports its own threshold,
 iterations, stop reason and final true residual. The mechanical stage runs
 after a converged thermal stage. An iteration-limit result includes the
 traces of the stages that ran and withholds physical fields and balances.

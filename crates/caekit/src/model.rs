@@ -7,7 +7,7 @@ use crate::physics::{
     axial_bar::AxialBar,
     cooling_channel::CoolingChannel,
     elastic_solid::ElasticSolid,
-    heat_conduction::{HeatConduction, SolidThermal},
+    heat_conduction::{HeatConduction, MultimaterialHeatConduction, SolidThermal},
     laminar_channel::LaminarChannel,
     thermoelastic_solid::ThermoelasticSolid,
 };
@@ -44,6 +44,7 @@ pub enum Physics {
     CoolingChannel(Box<CoolingChannel>),
     ElasticSolid(Box<ElasticSolid>),
     HeatConduction(Box<HeatConduction>),
+    MultimaterialHeatConduction(Box<MultimaterialHeatConduction>),
     ThermoelasticSolid(Box<ThermoelasticSolid>),
 }
 
@@ -55,6 +56,7 @@ impl Physics {
             Self::LaminarChannel(case) => vec![&case.geometry.identity],
             Self::CoolingChannel(case) => vec![&case.flow.geometry.identity, &case.wall.identity],
             Self::HeatConduction(case) => vec![&case.geometry],
+            Self::MultimaterialHeatConduction(case) => vec![&case.geometry],
             Self::ThermoelasticSolid(case) => vec![&case.geometry],
         }
     }
@@ -65,6 +67,9 @@ impl Physics {
             Self::AxialBar(_) => AxialBar::OUTPUTS.contains(&output),
             Self::LaminarChannel(_) => LaminarChannel::OUTPUTS.contains(&output),
             Self::HeatConduction(_) => SolidThermal::OUTPUTS.contains(&output),
+            Self::MultimaterialHeatConduction(_) => {
+                MultimaterialHeatConduction::OUTPUTS.contains(&output)
+            }
             Self::ThermoelasticSolid(_) => {
                 SolidThermal::OUTPUTS.contains(&output) || ElasticSolid::OUTPUTS.contains(&output)
             }
@@ -90,9 +95,11 @@ impl Model {
             schema_version: u32,
         }
 
-        let header: Header = serde_json::from_slice(bytes)?;
+        let header: Header =
+            serde_json::from_slice(bytes).map_err(|error| model_json_error(bytes, error))?;
         check_version(header.schema_version)?;
-        let model: Self = serde_json::from_slice(bytes)?;
+        let model: Self =
+            serde_json::from_slice(bytes).map_err(|error| model_json_error(bytes, error))?;
         model.validate()?;
         Ok(model)
     }
@@ -106,6 +113,7 @@ impl Model {
             Physics::LaminarChannel(case) => vec![case.validate("physics")?],
             Physics::CoolingChannel(case) => case.validate()?,
             Physics::HeatConduction(case) => vec![case.validate()?],
+            Physics::MultimaterialHeatConduction(case) => vec![case.validate()?],
             Physics::ThermoelasticSolid(case) => vec![case.validate()?],
         };
         Ok(ModelCheck {
@@ -140,6 +148,21 @@ impl Model {
 
         Ok(())
     }
+}
+
+fn model_json_error(bytes: &[u8], error: serde_json::Error) -> Error {
+    // Some numbers fail while reading the JSON token, before material validation.
+    // Recover the material field path on that error path only.
+    if error.is_syntax() {
+        let mut reader = serde_json::Deserializer::from_slice(bytes);
+        if let Err(annotated) = serde_path_to_error::deserialize::<_, Model>(&mut reader) {
+            let path = annotated.path().to_string();
+            if path.starts_with("physics.thermal.materials[") {
+                return Error::invalid(path, error.to_string());
+            }
+        }
+    }
+    Error::Json(error)
 }
 
 fn check_version(version: u32) -> Result<(), Error> {

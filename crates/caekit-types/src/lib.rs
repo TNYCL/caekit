@@ -8,4 +8,4 @@ mod quantity;
 pub use error::Error;
 pub use material::MaterialSource;
 pub use pressure::Pressure;
-pub use quantity::{Balance, Output, Quantity, SampleLocation, Solution};
+pub use quantity::{Balance, InterfaceValue, Output, Quantity, SampleLocation, Solution};

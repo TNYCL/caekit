@@ -68,6 +68,16 @@ function comparePhysics(wasi, native, model, label) {
       case "by_region":
         compareNamedNumbers(actual.values, expected.values, floor, metric);
         break;
+      case "by_interface": {
+        const directions = (quantity) => quantity.values.map(({ from_region, to_region }) => [from_region, to_region]);
+        assert.deepEqual(directions(actual), directions(expected), `${quantity}: oriented region pairs`);
+        compareNumbers(
+          actual.values.map(({ value }) => value),
+          expected.values.map(({ value }) => value),
+          floor, 1e-10, metric,
+        );
+        break;
+      }
       case "field":
       case "vector_field":
       case "tensor_field":
@@ -211,6 +221,44 @@ const references = {
     close(imbalance, 0, 1e-8, `${label}: solid energy balance (W)`);
     return `center ${centerTemperature} K, x flux ${flux.values[0][0]} W/m^2, boundary heat rates ${heat.x0} and ${heat.x1} W`;
   },
+  multimaterial_heat_conduction(report, label) {
+    assert.deepEqual(
+      report.convergence.map(({ stage, residual_unit }) => [stage, residual_unit]),
+      [["solid_heat_conduction", "W"], ["solid_interface_equilibration", "W"]],
+    );
+    const temperature = referenceField(report, "solid_temperature", "K", "field", "node", label);
+    let interfaceNodes = 0;
+    for (const [index, [x]] of temperature.positions_m.entries()) {
+      const expected = x <= 0.01 ? 311 - 100 * x : 310 - 1000 * (x - 0.01);
+      close(temperature.values[index], expected, 1e-8, `${label}: temperature[${index}] (K)`);
+      if (x === 0.01) interfaceNodes += 1;
+    }
+    assert.equal(interfaceNodes, 4, `${label}: shared interface nodes`);
+    const flux = referenceField(report, "solid_heat_flux", "W/m^2", "vector_field", "cell", label);
+    for (const [index, value] of flux.values.entries()) {
+      compareNumbers(value, [1_000, 0, 0], 1e-6, 0, `${label}: flux[${index}] (W/m^2)`);
+    }
+    const boundary = referenceQuantity(report, "boundary_heat_rate", "W", label).values;
+    compareNamedNumbers(boundary, { x0: 10, x1: -10, y0: 0, y1: 0, z0: 0, z1: 0 }, 1e-8, label);
+    const contact = referenceQuantity(report, "interface_heat_rate", "W", label);
+    assert.equal(contact.kind, "by_interface");
+    assert.equal(contact.values.length, 1);
+    const [transfer] = contact.values;
+    assert.deepEqual([transfer.from_region, transfer.to_region], ["left", "right"]);
+    close(transfer.value, 10, 1e-8, `${label}: interface transfer (W)`);
+    const { imbalance } = referenceBalance(report, "solid_energy", "W", label);
+    close(imbalance, 0, 1e-8, `${label}: solid energy balance (W)`);
+    for (const [name, exterior] of [["left", 10], ["right", -10]]) {
+      const balance = referenceBalance(report, `solid_energy:${name}`, "W", label);
+      compareNamedNumbers(
+        balance.terms,
+        { exterior_heat_input: exterior, interface_heat_input: -exterior, volumetric_generation: 0 },
+        1e-8, `${label}: ${name} energy terms (W)`,
+      );
+      close(balance.imbalance, 0, 1e-8, `${label}: ${name} energy balance (W)`);
+    }
+    return `interface 310 K, x flux ${flux.values[0][0]} W/m^2, transfer ${transfer.value} W left to right`;
+  },
   thermoelastic_solid(report, label) {
     assert.deepEqual(
       report.convergence.map(({ stage, residual_unit }) => [stage, residual_unit]),
@@ -267,7 +315,7 @@ for (const [name, reference] of Object.entries(references)) {
   const fixture = `examples/${name}.json`;
   test(fixture, (t) => {
     const model = JSON.parse(readFileSync(resolve(root, fixture), "utf8"));
-    const stages = ["cooling_channel", "thermoelastic_solid"].includes(name) ? 2 : 1;
+    const stages = ["cooling_channel", "multimaterial_heat_conduction", "thermoelastic_solid"].includes(name) ? 2 : 1;
     const native = run(resolve(nativePath), ["run", fixture], `${fixture} (native)`);
     const wasi = run(process.execPath, [runner, resolve(wasiPath), "run", fixture], `${fixture} (WASI)`);
     for (const [report, backend, target] of [

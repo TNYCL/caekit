@@ -1,15 +1,21 @@
 //! Steady isotropic heat conduction with linear tetrahedral elements.
 
+mod region_energy;
+mod volume;
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use super::ConductiveMaterial;
-use caekit_mesh::tetra::{CheckedTetraMesh, Tet, TetraTopology, dot};
+use caekit_mesh::tetra::{CheckedTetraMesh, Tet, TetraFaceAdjacency, TetraTopology, Triangle, dot};
 use caekit_mesh::{GeometryRevision, MeshMetrics, TetraMesh};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason};
-use caekit_types::error::{finite, nonempty, positive};
+use caekit_types::error::{finite, positive};
 use caekit_types::{Balance, Error, Output, Quantity, SampleLocation, Solution};
+use region_energy::RegionEnergy;
+use volume::{CellMaterials, CellProperties};
+pub use volume::{MultimaterialThermal, ThermalVolumeRegion};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,6 +23,14 @@ pub struct HeatConduction {
     pub geometry: GeometryRevision,
     pub mesh: TetraMesh,
     pub thermal: SolidThermal,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MultimaterialHeatConduction {
+    pub geometry: GeometryRevision,
+    pub mesh: TetraMesh,
+    pub thermal: MultimaterialThermal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +95,7 @@ impl SolidTemperature {
 pub struct PreparedConduction<'a> {
     mesh: &'a TetraMesh,
     topology: &'a TetraTopology<'a>,
-    thermal: &'a SolidThermal,
+    materials: CellMaterials<'a>,
     conditions: BTreeMap<&'a str, &'a ThermalBoundary>,
     prescribed: Vec<Option<f64>>,
     datum_k: f64,
@@ -110,6 +124,46 @@ impl HeatConduction {
     }
 }
 
+impl MultimaterialHeatConduction {
+    pub const OUTPUTS: &[Output] = &[
+        Output::SolidTemperature,
+        Output::SolidHeatFlux,
+        Output::BoundaryHeatRate,
+        Output::InterfaceHeatRate,
+    ];
+
+    pub fn validate(&self) -> Result<MeshMetrics, Error> {
+        self.geometry.validate("physics.geometry")?;
+        let mesh = self.mesh.checked("physics.mesh")?;
+        self.prepare(&mesh)?;
+        Ok(mesh.into_metrics())
+    }
+
+    pub fn solve(
+        &self,
+        settings: LinearSettings,
+        outputs: &[Output],
+    ) -> Result<(MeshMetrics, Solution<Convergence>), Error> {
+        self.geometry.validate("physics.geometry")?;
+        let (mesh, faces) = self.mesh.checked_with_face_adjacency("physics.mesh")?;
+        let (solution, _) =
+            self.prepare(&mesh)?
+                .solve_with_face_adjacency(settings, outputs, Some(&faces))?;
+        Ok((mesh.into_metrics(), solution))
+    }
+
+    fn prepare<'a>(
+        &'a self,
+        checked: &'a CheckedTetraMesh<'a>,
+    ) -> Result<PreparedConduction<'a>, Error> {
+        PreparedConduction::new(
+            checked,
+            &self.thermal.boundary_conditions,
+            CellMaterials::ByRegion(self.thermal.resolve(checked.mesh().cells.len())?),
+        )
+    }
+}
+
 impl SolidThermal {
     pub const OUTPUTS: &[Output] = &[
         Output::SolidTemperature,
@@ -122,25 +176,34 @@ impl SolidThermal {
         &'a self,
         checked: &'a CheckedTetraMesh<'a>,
     ) -> Result<PreparedConduction<'a>, Error> {
-        nonempty("physics.thermal.material.id", &self.material.id)?;
-        positive(
-            "physics.thermal.material.thermal_conductivity_w_m_k",
-            self.material.thermal_conductivity_w_m_k,
-        )?;
-        self.material
-            .source
-            .validate("physics.thermal.material.source")?;
+        volume::validate_material("physics.thermal.material", &self.material)?;
         finite(
             "physics.thermal.volumetric_heat_source_w_m3",
             self.volumetric_heat_source_w_m3,
         )?;
+        PreparedConduction::new(
+            checked,
+            &self.boundary_conditions,
+            CellMaterials::Uniform(CellProperties {
+                conductivity: self.material.thermal_conductivity_w_m_k,
+                generation: self.volumetric_heat_source_w_m3,
+            }),
+        )
+    }
+}
 
+impl<'a> PreparedConduction<'a> {
+    fn new(
+        checked: &'a CheckedTetraMesh<'a>,
+        boundary_conditions: &'a [ThermalBoundary],
+        materials: CellMaterials<'a>,
+    ) -> Result<Self, Error> {
         let (mesh, topology) = (checked.mesh(), checked.topology());
         let mut prescribed = vec![None; mesh.vertices_m.len()];
         let mut conditions = BTreeMap::new();
         let mut fixed_datum = None;
         let mut ambient_datum = None;
-        for (i, condition) in self.boundary_conditions.iter().enumerate() {
+        for (i, condition) in boundary_conditions.iter().enumerate() {
             let path = format!("physics.thermal.boundary_conditions[{i}]");
             let region = condition.region();
             let faces = topology.boundaries.get(region).ok_or_else(|| {
@@ -206,12 +269,7 @@ impl SolidThermal {
         }
         let datum_k = match (fixed_datum, ambient_datum) {
             (Some(k), _) => k,
-            (None, Some(ambient)) => convection_datum(
-                ambient,
-                self.volumetric_heat_source_w_m3,
-                topology,
-                &conditions,
-            ),
+            (None, Some(ambient)) => convection_datum(ambient, &materials, topology, &conditions),
             (None, None) => {
                 return Err(Error::invalid(
                     "physics.thermal.boundary_conditions",
@@ -219,22 +277,28 @@ impl SolidThermal {
                 ));
             }
         };
-        Ok(PreparedConduction {
+        Ok(Self {
             mesh,
             topology,
-            thermal: self,
+            materials,
             conditions,
             prescribed,
             datum_k,
         })
     }
-}
-
-impl PreparedConduction<'_> {
     pub fn solve(
         &self,
         settings: LinearSettings,
         outputs: &[Output],
+    ) -> Result<(Solution<Convergence>, Option<SolidTemperature>), Error> {
+        self.solve_with_face_adjacency(settings, outputs, None)
+    }
+
+    fn solve_with_face_adjacency(
+        &self,
+        settings: LinearSettings,
+        outputs: &[Output],
+        faces: Option<&TetraFaceAdjacency<'_>>,
     ) -> Result<(Solution<Convergence>, Option<SolidTemperature>), Error> {
         let loads = self.assemble_loads()?;
         let prescribed = self
@@ -243,8 +307,14 @@ impl PreparedConduction<'_> {
             .map(|value| value.map(|k| k - self.datum_k))
             .collect();
         let mut system = ConstrainedSystem::new(prescribed, &loads);
-        let k = self.thermal.material.thermal_conductivity_w_m_k;
-        for (tet, nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
+        for (cell, (tet, nodes)) in self
+            .topology
+            .elements
+            .iter()
+            .zip(&self.mesh.cells)
+            .enumerate()
+        {
+            let k = self.materials.at(cell).conductivity;
             for (a, &row) in nodes.iter().enumerate() {
                 for (b, &column) in nodes.iter().enumerate() {
                     let entry = (tet.volume * dot(tet.gradients[a], tet.gradients[b])) * k;
@@ -310,7 +380,16 @@ impl PreparedConduction<'_> {
                 ),
             );
         }
-        self.heat_rates(&offsets_k, outputs, &mut solution)?;
+        self.heat_rates(&offsets_k, outputs, settings, faces, &mut solution)?;
+        if solution
+            .convergence
+            .last()
+            .is_some_and(|stage| stage.stop_reason != StopReason::Converged)
+        {
+            solution.balances.clear();
+            solution.quantities.clear();
+            return Ok((solution, None));
+        }
         Ok((
             solution,
             Some(SolidTemperature {
@@ -322,8 +401,14 @@ impl PreparedConduction<'_> {
 
     fn assemble_loads(&self) -> Result<Vec<f64>, Error> {
         let mut loads = vec![0.0; self.prescribed.len()];
-        let generation = self.thermal.volumetric_heat_source_w_m3;
-        for (tet, nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
+        for (cell, (tet, nodes)) in self
+            .topology
+            .elements
+            .iter()
+            .zip(&self.mesh.cells)
+            .enumerate()
+        {
+            let generation = self.materials.at(cell).generation;
             for &node in nodes {
                 loads[node] += (tet.volume / 4.0) * generation;
             }
@@ -361,26 +446,47 @@ impl PreparedConduction<'_> {
         &self,
         offsets_k: &[f64],
         outputs: &[Output],
+        settings: LinearSettings,
+        faces: Option<&TetraFaceAdjacency<'_>>,
         solution: &mut Solution<Convergence>,
     ) -> Result<(), Error> {
+        let mut regional = match (&self.materials, faces) {
+            (CellMaterials::ByRegion(materials), Some(faces)) => {
+                Some(RegionEnergy::new(materials, faces))
+            }
+            _ => None,
+        };
         let want_flux = outputs.contains(&Output::SolidHeatFlux);
         let mut fluxes = Vec::new();
         let mut reactions = vec![0.0; self.prescribed.len()];
         let mut generation_w = 0.0;
-        let k = self.thermal.material.thermal_conductivity_w_m_k;
-        for (tet, &nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
-            let flux = heat_flux(tet, k, nodes.map(|node| offsets_k[node]));
+        for (cell, (tet, &nodes)) in self
+            .topology
+            .elements
+            .iter()
+            .zip(&self.mesh.cells)
+            .enumerate()
+        {
+            let material = self.materials.at(cell);
+            let flux = heat_flux(
+                tet,
+                material.conductivity,
+                nodes.map(|node| offsets_k[node]),
+            );
             if !flux.iter().all(|component| component.is_finite()) {
                 return Err(nonfinite("solid heat flux"));
             }
-            let generated = tet.volume * self.thermal.volumetric_heat_source_w_m3;
+            let generated = tet.volume * material.generation;
             generation_w += generated;
+            if let Some(regional) = &mut regional {
+                regional.add_generation(cell, generated);
+            }
             for (a, node) in nodes.into_iter().enumerate() {
                 if self.prescribed[node].is_some() {
                     reactions[node] -= tet.volume * dot(tet.gradients[a], flux) + 0.25 * generated;
                 }
             }
-            if want_flux {
+            if want_flux || regional.is_some() {
                 fluxes.push(flux);
             }
         }
@@ -396,12 +502,15 @@ impl PreparedConduction<'_> {
                     inward_heat_flux_w_m2,
                     ..
                 }) => {
-                    for face in faces {
+                    for (i, face) in faces.iter().enumerate() {
                         let load = (face.area / 3.0) * inward_heat_flux_w_m2;
                         for node in face.nodes {
                             reactions[node] -= load;
                         }
                         power += 3.0 * load;
+                        if let Some(regional) = &mut regional {
+                            regional.add_exterior_heat(region, i, 3.0 * load);
+                        }
                     }
                     flux_w += power;
                 }
@@ -411,7 +520,7 @@ impl PreparedConduction<'_> {
                     ..
                 }) => {
                     let ambient_offset = ambient_temperature_k - self.datum_k;
-                    for face in faces {
+                    for (i, face) in faces.iter().enumerate() {
                         let weight = film_weight(face.area, film_coefficient_w_m2_k);
                         let delta = face
                             .nodes
@@ -421,6 +530,9 @@ impl PreparedConduction<'_> {
                             reactions[node] -= sum + own;
                         }
                         power += 4.0 * sum;
+                        if let Some(regional) = &mut regional {
+                            regional.add_exterior_heat(region, i, 4.0 * sum);
+                        }
                     }
                     convection_w += power;
                 }
@@ -446,11 +558,16 @@ impl PreparedConduction<'_> {
                 ("prescribed_temperature_reaction", reaction_w),
             ],
         )?);
+        if want_rates || regional.is_some() {
+            self.distribute_reactions(&reactions, &mut regions, regional.as_mut(), &fluxes)?;
+        }
         if want_rates {
-            self.distribute_reactions(&reactions, &mut regions)?;
             solution
                 .quantities
                 .insert(Output::BoundaryHeatRate, Quantity::by_region("W", regions));
+        }
+        if let Some(regional) = regional {
+            regional.report(&fluxes, settings, outputs, solution)?;
         }
         if want_flux {
             solution.quantities.insert(
@@ -475,16 +592,30 @@ impl PreparedConduction<'_> {
         &self,
         reactions: &[f64],
         regions: &mut BTreeMap<String, f64>,
+        mut regional: Option<&mut RegionEnergy<'_>>,
+        fluxes: &[[f64; 3]],
     ) -> Result<(), Error> {
         let fixed_regions = self
             .conditions
             .iter()
             .filter(|(_, condition)| matches!(condition, ThermalBoundary::Temperature { .. }))
             .map(|(&region, _)| (region, &self.topology.boundaries[region]));
-        // A vertex's reaction is shared by its prescribed-temperature triangles in area proportion.
+        // On a multimaterial boundary use the cell flux to distinguish faces of
+        // different conductivities at a fixed vertex. Share just the mismatch by area.
+        let trial_load = |energy: &RegionEnergy<'_>, region, i, face: &Triangle| {
+            let cell = energy.exterior_cell(region, i);
+            -(face.area / 3.0) * dot(fluxes[cell], face.outward)
+        };
+        let mut mismatch = regional.as_ref().map(|_| reactions.to_vec());
         let mut nodal_area = vec![0.0; self.prescribed.len()];
-        for (_, faces) in fixed_regions.clone() {
-            for face in faces {
+        for (region, faces) in fixed_regions.clone() {
+            for (i, face) in faces.iter().enumerate() {
+                if let Some((energy, mismatch)) = regional.as_deref().zip(mismatch.as_mut()) {
+                    let trial = trial_load(energy, region, i, face);
+                    for node in face.nodes {
+                        mismatch[node] -= trial;
+                    }
+                }
                 for node in face.nodes {
                     nodal_area[node] += face.area;
                 }
@@ -493,15 +624,30 @@ impl PreparedConduction<'_> {
         if !nodal_area.iter().all(|area| area.is_finite()) {
             return Err(nonfinite("prescribed-temperature tributary area"));
         }
+        if mismatch.iter().flatten().any(|power| !power.is_finite()) {
+            return Err(nonfinite("prescribed-temperature face reactions"));
+        }
         for (region, faces) in fixed_regions {
-            let heat = faces
-                .iter()
-                .flat_map(|face| {
-                    face.nodes
-                        .map(|node| reactions[node] * (face.area / nodal_area[node]))
-                })
-                .sum();
-            *regions.get_mut(region).expect("known boundary region") = heat;
+            let mut heat = 0.0;
+            for (i, face) in faces.iter().enumerate() {
+                if let Some((energy, mismatch)) = regional.as_deref_mut().zip(mismatch.as_ref()) {
+                    let trial = trial_load(energy, region, i, face);
+                    let face_power = face
+                        .nodes
+                        .into_iter()
+                        .map(|node| trial + mismatch[node] * (face.area / nodal_area[node]))
+                        .sum();
+                    energy.add_exterior_heat(region, i, face_power);
+                    heat += face_power;
+                } else {
+                    for node in face.nodes {
+                        heat += reactions[node] * (face.area / nodal_area[node]);
+                    }
+                }
+            }
+            if let Some(power) = regions.get_mut(region) {
+                *power = heat;
+            }
         }
         Ok(())
     }
@@ -516,14 +662,15 @@ fn film_weight(area: f64, coefficient: f64) -> f64 {
 // h-weighted mean surface temperature. Remove this constant mode before PCG.
 fn convection_datum(
     ambient: f64,
-    source: f64,
+    materials: &CellMaterials<'_>,
     topology: &TetraTopology<'_>,
     conditions: &BTreeMap<&str, &ThermalBoundary>,
 ) -> f64 {
     let mut heat: f64 = topology
         .elements
         .iter()
-        .map(|tet| source * tet.volume)
+        .enumerate()
+        .map(|(cell, tet)| materials.at(cell).generation * tet.volume)
         .sum();
     let mut conductance = 0.0;
     for (&region, &condition) in conditions {

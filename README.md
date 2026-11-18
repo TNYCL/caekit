@@ -14,6 +14,7 @@ cargo run --locked -- run examples/cooling_channel.json
 cargo run --locked -- run examples/elastic_solid.json
 cargo run --locked -- check examples/heat_conduction.json
 cargo run --locked -- run examples/heat_conduction.json
+cargo run --locked -- run examples/multimaterial_heat_conduction.json
 cargo run --locked -- check examples/thermoelastic_solid.json
 cargo run --locked -- run examples/thermoelastic_solid.json
 ```
@@ -34,6 +35,10 @@ tensors and reactions on a three-dimensional tetrahedral mesh.
 The steady heat conduction example reports a center temperature of 350 K,
 a heat flux of 20,000 W/m² along +x and boundary heat rates of +200 W and
 −200 W. Positive boundary power enters the solid. [Heat conduction](docs/physics/heat-conduction.md)
+
+The two-layer conduction example assigns conductivity by volume region and
+reports 310 K at the shared interface and 10 W from the hot layer to the
+cold layer. [Multimaterial heat conduction](docs/physics/multimaterial-heat-conduction.md)
 
 The thermoelastic example transfers the computed 350 K field into a
 small-strain mechanical solve on the same tetrahedra. With axial extension
@@ -96,7 +101,7 @@ cargo +stable clippy --workspace --all-targets --locked -- -D warnings
 
 CI compiles the public library for `wasm32-unknown-unknown` and runs the
 physics and numerical tests for `wasm32-wasip1` under **Node.js 24.x** with
-WASI Preview 1. The WASI job launches the compiled CLI on all six saved
+WASI Preview 1. The WASI job launches the compiled CLI on all seven saved
 models. The native workspace job covers the CLI tests that spawn subprocesses.
 
 Use these commands from the repository root in a Linux shell with Node.js 24.x

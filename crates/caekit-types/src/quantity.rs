@@ -31,6 +31,7 @@ pub enum Output {
     SolidTemperature,
     SolidHeatFlux,
     BoundaryHeatRate,
+    InterfaceHeatRate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +72,18 @@ pub enum Quantity {
         unit: String,
         values: BTreeMap<String, f64>,
     },
+    ByInterface {
+        unit: String,
+        values: Vec<InterfaceValue>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InterfaceValue {
+    pub from_region: String,
+    pub to_region: String,
+    /// Positive for transfer from `from_region` to `to_region`.
+    pub value: f64,
 }
 
 impl Quantity {
@@ -130,6 +143,7 @@ impl Quantity {
                     && values.iter().flatten().flatten().all(|x| x.is_finite())
             }
             Self::ByRegion { values, .. } => values.values().all(|x| x.is_finite()),
+            Self::ByInterface { values, .. } => values.iter().all(|entry| entry.value.is_finite()),
         }
     }
 }

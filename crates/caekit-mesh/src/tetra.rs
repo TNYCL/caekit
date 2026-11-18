@@ -55,6 +55,20 @@ pub struct Triangle {
     pub outward: [f64; 3],
 }
 
+pub struct InteriorFace {
+    pub cells: [usize; 2],
+    pub area: f64,
+    /// Unit normal from the first cell toward the second.
+    pub outward: [f64; 3],
+}
+
+#[derive(Default)]
+pub struct TetraFaceAdjacency<'a> {
+    /// Exterior face owner indices in the checked topology's boundary face order.
+    pub boundary_cells: BTreeMap<&'a str, Vec<usize>>,
+    pub interior_faces: Vec<InteriorFace>,
+}
+
 pub struct TetraTopology<'a> {
     pub elements: Vec<Tet>,
     pub boundaries: BTreeMap<&'a str, Vec<Triangle>>,
@@ -98,6 +112,30 @@ impl TetraMesh {
     }
 
     pub fn check<'a>(&'a self, path: &str) -> Result<TetraTopology<'a>, Error> {
+        self.check_topology(path, None)
+    }
+
+    /// Check the mesh and retain cell ownership and orientation for heat exchange on its faces.
+    pub fn checked_with_face_adjacency<'a>(
+        &'a self,
+        path: &str,
+    ) -> Result<(CheckedTetraMesh<'a>, TetraFaceAdjacency<'a>), Error> {
+        let mut adjacency = TetraFaceAdjacency::default();
+        let topology = self.check_topology(path, Some(&mut adjacency))?;
+        Ok((
+            CheckedTetraMesh {
+                mesh: self,
+                topology,
+            },
+            adjacency,
+        ))
+    }
+
+    fn check_topology<'a>(
+        &'a self,
+        path: &str,
+        mut adjacency: Option<&mut TetraFaceAdjacency<'a>>,
+    ) -> Result<TetraTopology<'a>, Error> {
         let vertices = &self.vertices_m;
         if vertices.len() < 4 || self.cells.is_empty() {
             return Err(Error::invalid(
@@ -254,6 +292,12 @@ impl TetraMesh {
                 return Err(Error::invalid(region_path, "region has no faces"));
             }
             let mut triangles = Vec::with_capacity(assigned.len());
+            let mut owners = adjacency.as_mut().map(|faces| {
+                faces
+                    .boundary_cells
+                    .entry(region.as_str())
+                    .or_insert_with(|| Vec::with_capacity(assigned.len()))
+            });
             for (i, &face) in assigned.iter().enumerate() {
                 let mut key = face;
                 key.sort_unstable();
@@ -263,6 +307,9 @@ impl TetraMesh {
                         "region references an unknown, interior, or already assigned face",
                     ));
                 };
+                if let Some(cells) = &mut owners {
+                    cells.push(owner.first);
+                }
                 triangles.push(owner.boundary);
             }
             boundaries.insert(region.as_str(), triangles);
@@ -273,6 +320,18 @@ impl TetraMesh {
                 format!("{path}.boundary_regions"),
                 format!("exterior face {nodes:?} has no region assignment"),
             ));
+        }
+        if let Some(adjacency) = adjacency {
+            adjacency.interior_faces = faces
+                .into_values()
+                .filter_map(|face| {
+                    face.other.map(|other| InteriorFace {
+                        cells: [face.first, other],
+                        area: face.boundary.area,
+                        outward: face.boundary.outward,
+                    })
+                })
+                .collect();
         }
         Ok(TetraTopology {
             elements,

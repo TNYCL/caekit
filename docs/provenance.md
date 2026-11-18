@@ -5,8 +5,9 @@
   [Apache Software Foundation text](https://www.apache.org/licenses/LICENSE-2.0.txt).
 - The Rust dependencies are obtained unmodified from crates.io. The versions
   and checksums are in [Cargo.lock](../Cargo.lock). The direct dependencies are
-  [Serde](https://github.com/serde-rs/serde), [Serde JSON](https://github.com/serde-rs/json)
-  and [RustCrypto SHA-2](https://github.com/RustCrypto/hashes), each available
+  [Serde](https://github.com/serde-rs/serde), [Serde JSON](https://github.com/serde-rs/json),
+  [Serde Path to Error](https://github.com/dtolnay/path-to-error) and
+  [RustCrypto SHA-2](https://github.com/RustCrypto/hashes), each available
   under MIT or Apache-2.0. The locked graph includes the corresponding
   permissive dependencies, including the Unicode-3.0 terms applicable to
   `unicode-ident`. Inspect the exact resolved licenses and upstream
@@ -24,7 +25,7 @@
 - The elastic solid example uses a synthetic cuboid patch mesh, constant
   elastic properties and analytical traction and body-load cases under the
   project license.
-- The heat conduction and thermoelastic examples use synthetic tetrahedral
-  blocks, conductivity, elastic constants and expansion properties under
-  the project license. The associated physics pages derive the analytical
+- The homogeneous, multimaterial and thermoelastic examples use synthetic
+  tetrahedral blocks, conductivity, elastic constants and expansion properties
+  under the project license. The associated physics pages derive the analytical
   references from constant-property conduction and isotropic elasticity.
