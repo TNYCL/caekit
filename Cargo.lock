@@ -15,9 +15,17 @@ dependencies = [
 name = "caekit"
 version = "0.1.0"
 dependencies = [
+ "caekit-numerics",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "caekit-numerics"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::linear::{Convergence, StopReason};
 use crate::{Error, GeometryRevision, MeshMetrics};
+use caekit_numerics::{Convergence, StopReason};
 
 pub const RESULT_SCHEMA_VERSION: u32 = 1;
 

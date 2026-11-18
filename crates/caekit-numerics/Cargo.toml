@@ -1,0 +1,11 @@
+[package]
+name = "caekit-numerics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Sparse numerical solvers for CAEKit"
+
+[dependencies]
+serde.workspace = true

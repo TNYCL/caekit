@@ -3,10 +3,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{finite, nonempty, positive};
-use crate::linear::{ConstrainedSystem, LinearSettings, StopReason, norm};
 use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::tetra::{Tet, TetraTopology, cross, dot, subtract};
 use crate::{Error, GeometryRevision, MaterialSource, MeshMetrics, TetraMesh};
+use caekit_numerics::{ConstrainedSystem, LinearSettings, StopReason, norm};
 
 use super::laminar_channel::Pressure;
 

@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{nonempty, positive};
 use crate::interface::overlap;
-use crate::linear::{Convergence, LinearSettings, StopReason, norm};
 use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::{Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
+use caekit_numerics::{Convergence, LinearSettings, StopReason, norm};
 
 use super::laminar_channel::{FlowState, LaminarChannel};
 

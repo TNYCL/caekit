@@ -3,13 +3,13 @@ use std::collections::BTreeSet;
 
 use crate::Error;
 use crate::error::nonempty;
-use crate::linear::LinearSettings;
 use crate::mesh::{GeometryRevision, MeshMetrics};
 use crate::physics::{
     axial_bar::AxialBar, cooling_channel::CoolingChannel, elastic_solid::ElasticSolid,
     laminar_channel::LaminarChannel,
 };
 use crate::result::Output;
+use caekit_numerics::LinearSettings;
 
 pub const MODEL_SCHEMA_VERSION: u32 = 1;
 
@@ -104,7 +104,7 @@ impl Model {
     pub fn validate(&self) -> Result<ModelCheck, Error> {
         check_version(self.schema_version)?;
         nonempty("name", &self.name)?;
-        self.linear_solver.validate()?;
+        validate_linear_settings(self.linear_solver)?;
 
         if self.outputs.is_empty() {
             return Err(Error::invalid("outputs", "request at least one quantity"));
@@ -142,4 +142,28 @@ fn check_version(version: u32) -> Result<(), Error> {
     } else {
         Err(Error::UnsupportedModelVersion(version))
     }
+}
+
+fn validate_linear_settings(settings: LinearSettings) -> Result<(), Error> {
+    if !(0.0 < settings.relative_residual_tolerance && settings.relative_residual_tolerance < 1.0) {
+        return Err(Error::invalid(
+            "linear_solver.relative_residual_tolerance",
+            "must be greater than zero and less than one",
+        ));
+    }
+    if !settings.absolute_residual_tolerance.is_finite()
+        || settings.absolute_residual_tolerance < 0.0
+    {
+        return Err(Error::invalid(
+            "linear_solver.absolute_residual_tolerance",
+            "must be nonnegative and finite",
+        ));
+    }
+    if settings.max_iterations == 0 {
+        return Err(Error::invalid(
+            "linear_solver.max_iterations",
+            "must be positive",
+        ));
+    }
+    Ok(())
 }

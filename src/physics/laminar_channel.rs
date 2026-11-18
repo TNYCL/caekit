@@ -3,9 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{nonempty, positive};
-use crate::linear::{Convergence, LinearSettings, SparseAssembly, StopReason};
 use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::{AxisFrame, Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
+use caekit_numerics::{Convergence, LinearSettings, SparseAssembly, StopReason};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

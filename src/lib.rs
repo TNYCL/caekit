@@ -2,15 +2,14 @@
 
 mod error;
 mod interface;
-mod linear;
 mod mesh;
 mod model;
 pub mod physics;
 mod result;
 mod tetra;
 
+pub use caekit_numerics::{Convergence, LinearSettings, StopReason};
 pub use error::Error;
-pub use linear::{Convergence, LinearSettings, StopReason};
 pub use mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics, MeshQuality};
 pub use model::{MODEL_SCHEMA_VERSION, MaterialSource, Model, ModelCheck, Physics, Units};
 pub use result::{

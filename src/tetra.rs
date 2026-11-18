@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::error::nonempty;
-use crate::linear::norm;
 use crate::{Error, MeshMetrics, MeshQuality};
+use caekit_numerics::norm;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -1,8 +1,8 @@
+//! Sparse linear methods and convergence reporting.
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-
-use crate::Error;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,30 +19,6 @@ impl Default for LinearSettings {
             absolute_residual_tolerance: 0.0,
             max_iterations: 20_000,
         }
-    }
-}
-
-impl LinearSettings {
-    pub(crate) fn validate(self) -> Result<(), Error> {
-        if !(0.0 < self.relative_residual_tolerance && self.relative_residual_tolerance < 1.0) {
-            return Err(Error::invalid(
-                "linear_solver.relative_residual_tolerance",
-                "must be greater than zero and less than one",
-            ));
-        }
-        if !self.absolute_residual_tolerance.is_finite() || self.absolute_residual_tolerance < 0.0 {
-            return Err(Error::invalid(
-                "linear_solver.absolute_residual_tolerance",
-                "must be nonnegative and finite",
-            ));
-        }
-        if self.max_iterations == 0 {
-            return Err(Error::invalid(
-                "linear_solver.max_iterations",
-                "must be positive",
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -68,22 +44,22 @@ pub struct Convergence {
 }
 
 /// Sparse triplet accumulation with deterministic row and column ordering.
-pub(crate) struct SparseAssembly {
+pub struct SparseAssembly {
     rows: Vec<BTreeMap<usize, f64>>,
 }
 
 impl SparseAssembly {
-    pub(crate) fn new(size: usize) -> Self {
+    pub fn new(size: usize) -> Self {
         Self {
             rows: vec![BTreeMap::new(); size],
         }
     }
 
-    pub(crate) fn add(&mut self, row: usize, column: usize, entry: f64) {
+    pub fn add(&mut self, row: usize, column: usize, entry: f64) {
         *self.rows[row].entry(column).or_default() += entry;
     }
 
-    pub(crate) fn solve(
+    pub fn solve(
         self,
         rhs: &[f64],
         settings: LinearSettings,
@@ -139,7 +115,7 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
-pub(crate) fn norm(values: &[f64]) -> f64 {
+pub fn norm(values: &[f64]) -> f64 {
     values.iter().fold(0.0_f64, |norm, x| norm.hypot(*x))
 }
 
@@ -265,7 +241,7 @@ fn pcg(
 }
 
 /// Symmetric elimination of prescribed degrees of freedom.
-pub(crate) struct ConstrainedSystem {
+pub struct ConstrainedSystem {
     reduced: SparseAssembly,
     rhs: Vec<f64>,
     prescribed: Vec<Option<f64>>,
@@ -273,7 +249,7 @@ pub(crate) struct ConstrainedSystem {
 }
 
 impl ConstrainedSystem {
-    pub(crate) fn new(prescribed: Vec<Option<f64>>, loads: &[f64]) -> Self {
+    pub fn new(prescribed: Vec<Option<f64>>, loads: &[f64]) -> Self {
         let mut rhs = Vec::new();
         let reduced_index = prescribed
             .iter()
@@ -296,7 +272,7 @@ impl ConstrainedSystem {
         }
     }
 
-    pub(crate) fn add(&mut self, row: usize, column: usize, entry: f64) {
+    pub fn add(&mut self, row: usize, column: usize, entry: f64) {
         if let Some(i) = self.reduced_index[row] {
             match self.reduced_index[column] {
                 Some(j) => self.reduced.add(i, j, entry),
@@ -305,7 +281,7 @@ impl ConstrainedSystem {
         }
     }
 
-    pub(crate) fn solve(
+    pub fn solve(
         self,
         settings: LinearSettings,
         stage: &str,

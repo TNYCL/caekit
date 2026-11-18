@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::error::{finite, nonempty, positive};
-use crate::linear::{ConstrainedSystem, LinearSettings, StopReason};
 use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::{AxisFrame, Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
+use caekit_numerics::{ConstrainedSystem, LinearSettings, StopReason};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
