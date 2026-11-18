@@ -1,0 +1,14 @@
+[package]
+name = "caekit-thermal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Thermal conduction and energy transport solvers for CAEKit"
+
+[dependencies]
+caekit-mesh.workspace = true
+caekit-numerics.workspace = true
+caekit-types.workspace = true
+serde.workspace = true

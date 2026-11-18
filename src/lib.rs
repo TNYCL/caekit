@@ -1,6 +1,5 @@
 //! Versioned multiphysics models, checked reference solvers, and reproducible results.
 
-mod interface;
 mod model;
 pub mod physics;
 mod result;

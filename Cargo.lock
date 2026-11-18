@@ -19,6 +19,7 @@ dependencies = [
  "caekit-mechanics",
  "caekit-mesh",
  "caekit-numerics",
+ "caekit-thermal",
  "caekit-types",
  "serde",
  "serde_json",
@@ -57,6 +58,16 @@ dependencies = [
 name = "caekit-numerics"
 version = "0.1.0"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "caekit-thermal"
+version = "0.1.0"
+dependencies = [
+ "caekit-mesh",
+ "caekit-numerics",
+ "caekit-types",
  "serde",
 ]
 
