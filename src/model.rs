@@ -4,7 +4,10 @@ use std::collections::BTreeSet;
 use crate::Error;
 use crate::Output;
 use crate::physics::{
-    axial_bar::AxialBar, cooling_channel::CoolingChannel, elastic_solid::ElasticSolid,
+    axial_bar::AxialBar,
+    cooling_channel::CoolingChannel,
+    elastic_solid::ElasticSolid,
+    heat_conduction::{HeatConduction, SolidThermal},
     laminar_channel::LaminarChannel,
 };
 use caekit_mesh::{GeometryRevision, MeshMetrics};
@@ -39,6 +42,7 @@ pub enum Physics {
     LaminarChannel(Box<LaminarChannel>),
     CoolingChannel(Box<CoolingChannel>),
     ElasticSolid(Box<ElasticSolid>),
+    HeatConduction(Box<HeatConduction>),
 }
 
 impl Physics {
@@ -48,6 +52,7 @@ impl Physics {
             Self::AxialBar(case) => vec![&case.geometry.identity],
             Self::LaminarChannel(case) => vec![&case.geometry.identity],
             Self::CoolingChannel(case) => vec![&case.flow.geometry.identity, &case.wall.identity],
+            Self::HeatConduction(case) => vec![&case.geometry],
         }
     }
 
@@ -56,6 +61,7 @@ impl Physics {
             Self::ElasticSolid(_) => ElasticSolid::OUTPUTS.contains(&output),
             Self::AxialBar(_) => AxialBar::OUTPUTS.contains(&output),
             Self::LaminarChannel(_) => LaminarChannel::OUTPUTS.contains(&output),
+            Self::HeatConduction(_) => SolidThermal::OUTPUTS.contains(&output),
             Self::CoolingChannel(_) => {
                 LaminarChannel::OUTPUTS.contains(&output)
                     || CoolingChannel::THERMAL_OUTPUTS.contains(&output)
@@ -87,6 +93,21 @@ impl Model {
 
     /// Checks a deserialized or programmatically built model.
     pub fn validate(&self) -> Result<ModelCheck, Error> {
+        self.validate_request()?;
+        let meshes = match &self.physics {
+            Physics::AxialBar(case) => vec![case.validate()?],
+            Physics::ElasticSolid(case) => vec![case.validate()?],
+            Physics::LaminarChannel(case) => vec![case.validate("physics")?],
+            Physics::CoolingChannel(case) => case.validate()?,
+            Physics::HeatConduction(case) => vec![case.validate()?],
+        };
+        Ok(ModelCheck {
+            model_schema_version: self.schema_version,
+            meshes,
+        })
+    }
+
+    pub(crate) fn validate_request(&self) -> Result<(), Error> {
         check_version(self.schema_version)?;
         nonempty("name", &self.name)?;
         self.linear_solver
@@ -110,16 +131,7 @@ impl Model {
             }
         }
 
-        let meshes = match &self.physics {
-            Physics::AxialBar(case) => vec![case.validate()?],
-            Physics::ElasticSolid(case) => vec![case.validate()?],
-            Physics::LaminarChannel(case) => vec![case.validate("physics")?],
-            Physics::CoolingChannel(case) => case.validate()?,
-        };
-        Ok(ModelCheck {
-            model_schema_version: self.schema_version,
-            meshes,
-        })
+        Ok(())
     }
 }
 

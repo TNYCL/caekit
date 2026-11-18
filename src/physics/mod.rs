@@ -4,3 +4,4 @@ pub mod cooling_channel;
 
 pub use caekit_fluids::laminar_channel;
 pub use caekit_mechanics::{axial_bar, elastic_solid};
+pub use caekit_thermal::heat_conduction;

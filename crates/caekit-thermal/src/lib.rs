@@ -1,5 +1,6 @@
-//! Conductive walls and conservative bulk coolant energy transport.
+//! Solid heat conduction and conservative bulk coolant energy transport.
 
+pub mod heat_conduction;
 mod interface;
 
 use serde::{Deserialize, Serialize};

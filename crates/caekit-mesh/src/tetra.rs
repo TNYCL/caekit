@@ -56,9 +56,17 @@ pub struct Triangle {
 }
 
 pub struct TetraTopology<'a> {
+    mesh: &'a TetraMesh,
     pub elements: Vec<Tet>,
     pub boundaries: BTreeMap<&'a str, Vec<Triangle>>,
     pub metrics: MeshMetrics,
+}
+
+impl<'a> TetraTopology<'a> {
+    /// The mesh whose node and cell ordering this topology follows.
+    pub fn mesh(&self) -> &'a TetraMesh {
+        self.mesh
+    }
 }
 
 #[derive(Debug)]
@@ -248,6 +256,7 @@ impl TetraMesh {
             ));
         }
         Ok(TetraTopology {
+            mesh: self,
             elements,
             boundaries,
             metrics,
