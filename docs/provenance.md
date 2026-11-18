@@ -15,3 +15,6 @@
   analytical fixture. They fall under the project license. The example uses
   a representative constant elastic modulus independent of any measured
   material curve.
+- The parallel-plate channel example uses synthetic constant liquid properties
+  and geometry under the project license. Its expected pressure loss and
+  velocity profile follow from the analytical momentum equation.

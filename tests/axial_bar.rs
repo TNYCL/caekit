@@ -47,7 +47,9 @@ fn cli_solves_analytic_tension_case() {
 #[test]
 fn loaded_start_has_negative_projection_and_geometry_is_preserved() {
     let mut model = Model::from_json(INPUT).unwrap();
-    let Physics::AxialBar(case) = &mut model.physics;
+    let Physics::AxialBar(case) = &mut model.physics else {
+        panic!("expected the axial bar fixture");
+    };
     case.geometry.frame.origin_m = [3.0, 0.0, -2.0];
     case.geometry.frame.direction = [0.0, 1.0, 0.0];
     case.boundary_conditions = vec![
@@ -82,7 +84,9 @@ fn loaded_start_has_negative_projection_and_geometry_is_preserved() {
 #[test]
 fn supports_nonzero_displacement_conditions_at_both_ends() {
     let mut model = Model::from_json(INPUT).unwrap();
-    let Physics::AxialBar(case) = &mut model.physics;
+    let Physics::AxialBar(case) = &mut model.physics else {
+        panic!("expected the axial bar fixture");
+    };
     case.boundary_conditions = vec![
         BarBoundary::Displacement {
             region: "clamp".to_owned(),
@@ -141,7 +145,9 @@ fn rejects_future_schemas_unknown_fields_and_invalid_conditions() {
     );
 
     let mut model = Model::from_json(INPUT).unwrap();
-    let Physics::AxialBar(case) = &mut model.physics;
+    let Physics::AxialBar(case) = &mut model.physics else {
+        panic!("expected the axial bar fixture");
+    };
     case.boundary_conditions.pop();
     assert!(
         solve(&model)
@@ -151,7 +157,9 @@ fn rejects_future_schemas_unknown_fields_and_invalid_conditions() {
     );
 
     let mut model = Model::from_json(INPUT).unwrap();
-    let Physics::AxialBar(case) = &mut model.physics;
+    let Physics::AxialBar(case) = &mut model.physics else {
+        panic!("expected the axial bar fixture");
+    };
     case.mesh.vertices_m[1] = 0.0;
     assert!(
         solve(&model)

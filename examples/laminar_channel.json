@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "name": "Plane Poiseuille flow at a prescribed volume flow rate",
+  "units": "si",
+  "physics": {
+    "kind": "laminar_channel",
+    "geometry": {
+      "identity": {
+        "id": "parallel-plate-channel",
+        "revision": "1"
+      },
+      "axial_frame": {
+        "origin_m": [
+          0,
+          0,
+          0
+        ],
+        "direction": [
+          1,
+          0,
+          0
+        ]
+      },
+      "transverse_direction": [
+        0,
+        1,
+        0
+      ],
+      "length_m": 2,
+      "gap_m": 0.01,
+      "width_m": 0.1,
+      "inlet_region": "inlet",
+      "outlet_region": "outlet"
+    },
+    "mesh": {
+      "vertices_m": [
+        0.0,
+        0.0003125,
+        0.000625,
+        0.0009375,
+        0.00125,
+        0.0015625,
+        0.001875,
+        0.0021875,
+        0.0025,
+        0.0028125,
+        0.003125,
+        0.0034375,
+        0.00375,
+        0.0040625,
+        0.004375,
+        0.0046875,
+        0.005,
+        0.0053125,
+        0.005625,
+        0.0059375,
+        0.00625,
+        0.0065625,
+        0.006875,
+        0.0071875,
+        0.0075,
+        0.0078125,
+        0.008125,
+        0.0084375,
+        0.00875,
+        0.0090625,
+        0.009375,
+        0.0096875,
+        0.01
+      ],
+      "start_region": "lower_wall",
+      "end_region": "upper_wall"
+    },
+    "material": {
+      "id": "reference-viscous-liquid",
+      "density_kg_m3": 1000,
+      "dynamic_viscosity_pa_s": 0.001,
+      "source": {
+        "citation": "CAEKit analytic parallel-plate flow fixture",
+        "usage_terms": "Synthetic reference input covered by the CAEKit project license"
+      }
+    },
+    "walls": [
+      {
+        "region": "lower_wall",
+        "condition": "no_slip"
+      },
+      {
+        "region": "upper_wall",
+        "condition": "no_slip"
+      }
+    ],
+    "drive": {
+      "kind": "volume_flow",
+      "inlet_region": "inlet",
+      "rate_m3_s": 1e-05,
+      "outlet": {
+        "region": "outlet",
+        "pressure": {
+          "reference": "gauge",
+          "value_pa": 0,
+          "reference_absolute_pa": 101325
+        }
+      }
+    }
+  },
+  "outputs": [
+    "axial_velocity",
+    "volume_flow_rate",
+    "mass_flow_rate",
+    "pressure_loss",
+    "absolute_pressure",
+    "channel_reynolds",
+    "wall_drag"
+  ]
+}

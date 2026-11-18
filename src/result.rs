@@ -14,6 +14,13 @@ pub enum Output {
     AxialStress,
     EndDisplacement,
     ReactionForce,
+    AxialVelocity,
+    VolumeFlowRate,
+    MassFlowRate,
+    PressureLoss,
+    AbsolutePressure,
+    ChannelReynolds,
+    WallDrag,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +50,34 @@ pub enum Quantity {
 }
 
 impl Quantity {
+    pub(crate) fn scalar(unit: &str, value: f64) -> Self {
+        Self::Scalar {
+            unit: unit.to_owned(),
+            value,
+        }
+    }
+
+    pub(crate) fn field(
+        unit: &str,
+        location: SampleLocation,
+        positions_m: Vec<[f64; 3]>,
+        values: Vec<f64>,
+    ) -> Self {
+        Self::Field {
+            unit: unit.to_owned(),
+            location,
+            positions_m,
+            values,
+        }
+    }
+
+    pub(crate) fn by_region(unit: &str, values: impl IntoIterator<Item = (String, f64)>) -> Self {
+        Self::ByRegion {
+            unit: unit.to_owned(),
+            values: values.into_iter().collect(),
+        }
+    }
+
     pub(crate) fn all_finite(&self) -> bool {
         match self {
             Self::Scalar { value, .. } => value.is_finite(),

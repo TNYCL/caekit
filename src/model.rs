@@ -5,7 +5,7 @@ use crate::Error;
 use crate::error::nonempty;
 use crate::linear::LinearSettings;
 use crate::mesh::{GeometryRevision, MeshMetrics};
-use crate::physics::axial_bar::AxialBar;
+use crate::physics::{axial_bar::AxialBar, laminar_channel::LaminarChannel};
 use crate::result::Output;
 
 pub const MODEL_SCHEMA_VERSION: u32 = 1;
@@ -32,19 +32,22 @@ pub enum Units {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Physics {
-    AxialBar(AxialBar),
+    AxialBar(Box<AxialBar>),
+    LaminarChannel(Box<LaminarChannel>),
 }
 
 impl Physics {
     pub(crate) fn geometry(&self) -> Vec<&GeometryRevision> {
         match self {
             Self::AxialBar(case) => vec![&case.geometry.identity],
+            Self::LaminarChannel(case) => vec![&case.geometry.identity],
         }
     }
 
     pub(crate) fn supported_outputs(&self) -> &'static [Output] {
         match self {
             Self::AxialBar(_) => AxialBar::OUTPUTS,
+            Self::LaminarChannel(_) => LaminarChannel::OUTPUTS,
         }
     }
 }
@@ -110,6 +113,7 @@ impl Model {
 
         let meshes = match &self.physics {
             Physics::AxialBar(case) => vec![case.validate()?],
+            Physics::LaminarChannel(case) => vec![case.validate("physics")?],
         };
         Ok(ModelCheck {
             model_schema_version: self.schema_version,

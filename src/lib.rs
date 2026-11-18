@@ -23,6 +23,7 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
     let hash = Sha256::digest(serde_json::to_vec(model)?);
     let mut solution = match &model.physics {
         Physics::AxialBar(case) => case.solve(model.linear_solver)?,
+        Physics::LaminarChannel(case) => case.solve(model.linear_solver)?,
     };
 
     for (key, quantity) in &solution.quantities {
