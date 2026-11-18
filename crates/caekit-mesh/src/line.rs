@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::Error;
+use caekit_types::Error;
 use caekit_types::error::{nonempty, positive};
 
 /// Identity of the geometry on which the mesh and boundary assignments are based.
@@ -12,7 +12,7 @@ pub struct GeometryRevision {
 }
 
 impl GeometryRevision {
-    pub(crate) fn validate(&self, path: &str) -> Result<(), Error> {
+    pub fn validate(&self, path: &str) -> Result<(), Error> {
         nonempty(&format!("{path}.id"), &self.id)?;
         nonempty(&format!("{path}.revision"), &self.revision)
     }
@@ -27,7 +27,7 @@ pub struct AxisFrame {
 }
 
 impl AxisFrame {
-    pub(crate) fn validate(&self, path: &str) -> Result<(), Error> {
+    pub fn validate(&self, path: &str) -> Result<(), Error> {
         if self.origin_m.iter().any(|x| !x.is_finite()) {
             return Err(Error::invalid(path, "frame origin must be finite"));
         }
@@ -44,7 +44,7 @@ impl AxisFrame {
         Ok(())
     }
 
-    pub(crate) fn position(&self, distance_m: f64) -> [f64; 3] {
+    pub fn position(&self, distance_m: f64) -> [f64; 3] {
         std::array::from_fn(|i| self.origin_m[i] + distance_m * self.direction[i])
     }
 }
@@ -76,7 +76,7 @@ pub struct MeshQuality {
 }
 
 impl LineMesh {
-    pub(crate) fn validate(&self, path: &str, length: f64) -> Result<MeshMetrics, Error> {
+    pub fn validate(&self, path: &str, length: f64) -> Result<MeshMetrics, Error> {
         let vertices = &self.vertices_m;
         if vertices.len() < 2 || vertices.first() != Some(&0.0) || vertices.last() != Some(&length)
         {
@@ -111,7 +111,7 @@ impl LineMesh {
         Ok(metrics)
     }
 
-    pub(crate) fn endpoint(&self, region: &str) -> Option<usize> {
+    pub fn endpoint(&self, region: &str) -> Option<usize> {
         if region == self.start_region {
             Some(0)
         } else if region == self.end_region {

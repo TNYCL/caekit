@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::tetra::{Tet, TetraTopology, cross, dot, subtract};
 use crate::{Error, GeometryRevision, MaterialSource, MeshMetrics, TetraMesh};
+use caekit_mesh::tetra::{Tet, TetraTopology, cross, dot, subtract};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason, norm};
 use caekit_types::error::{finite, nonempty, positive};
 use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};

@@ -1,0 +1,12 @@
+[package]
+name = "caekit-mesh"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Engineering mesh geometry, boundaries, and quality checks for CAEKit"
+
+[dependencies]
+caekit-types.workspace = true
+serde.workspace = true

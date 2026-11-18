@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, MeshMetrics, MeshQuality};
-use caekit_numerics::norm;
+use crate::{MeshMetrics, MeshQuality};
+use caekit_types::Error;
 use caekit_types::error::nonempty;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,11 +25,11 @@ pub struct FaceRegion {
     pub faces: Vec<[usize; 3]>,
 }
 
-pub(crate) fn subtract(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub fn subtract(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     std::array::from_fn(|i| a[i] - b[i])
 }
 
-pub(crate) fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -37,28 +37,28 @@ pub(crate) fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-pub(crate) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a.into_iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
 #[derive(Debug)]
-pub(crate) struct Tet {
-    pub(crate) volume: f64,
-    pub(crate) gradients: [[f64; 3]; 4],
-    pub(crate) centroid: [f64; 3],
+pub struct Tet {
+    pub volume: f64,
+    pub gradients: [[f64; 3]; 4],
+    pub centroid: [f64; 3],
 }
 
 #[derive(Debug)]
-pub(crate) struct Triangle {
-    pub(crate) nodes: [usize; 3],
-    pub(crate) area: f64,
-    pub(crate) outward: [f64; 3],
+pub struct Triangle {
+    pub nodes: [usize; 3],
+    pub area: f64,
+    pub outward: [f64; 3],
 }
 
-pub(crate) struct TetraTopology<'a> {
-    pub(crate) elements: Vec<Tet>,
-    pub(crate) boundaries: BTreeMap<&'a str, Vec<Triangle>>,
-    pub(crate) metrics: MeshMetrics,
+pub struct TetraTopology<'a> {
+    pub elements: Vec<Tet>,
+    pub boundaries: BTreeMap<&'a str, Vec<Triangle>>,
+    pub metrics: MeshMetrics,
 }
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ struct FaceUse {
 }
 
 impl TetraMesh {
-    pub(crate) fn check<'a>(&'a self, path: &str) -> Result<TetraTopology<'a>, Error> {
+    pub fn check<'a>(&'a self, path: &str) -> Result<TetraTopology<'a>, Error> {
         let vertices = &self.vertices_m;
         if vertices.len() < 4 || self.cells.is_empty() {
             return Err(Error::invalid(
@@ -276,7 +276,7 @@ fn element(p: [[f64; 3]; 4]) -> Option<(Tet, f64, f64, f64)> {
         subtract(p[3], p[1]),
         subtract(p[3], p[2]),
     ];
-    let lengths = edges.map(|v| norm(&v));
+    let lengths = edges.map(length);
     let shortest = lengths.into_iter().fold(f64::INFINITY, f64::min);
     let longest = lengths.into_iter().fold(0.0, f64::max);
     if shortest <= 0.0 || !longest.is_finite() {
@@ -326,7 +326,7 @@ fn face_geometry(
 ) -> Option<(f64, [f64; 3], bool)> {
     let local = |a| subtract(a, p).map(|x| x / scale);
     let normal = cross(local(q), local(r));
-    let magnitude = norm(&normal);
+    let magnitude = length(normal);
     let area = magnitude * 0.5 * scale * scale;
     let direction = dot(normal, local(opposite));
     if !area.is_finite() || area <= 0.0 || direction == 0.0 {
@@ -336,4 +336,8 @@ fn face_geometry(
     let sign = if normal_points_in { -1.0 } else { 1.0 };
     let outward = normal.map(|x| sign * x / magnitude);
     Some((area, outward, normal_points_in))
+}
+
+fn length(v: [f64; 3]) -> f64 {
+    v.into_iter().fold(0.0_f64, f64::hypot)
 }

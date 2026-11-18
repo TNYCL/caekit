@@ -3,11 +3,11 @@ use std::collections::BTreeSet;
 
 use crate::Error;
 use crate::Output;
-use crate::mesh::{GeometryRevision, MeshMetrics};
 use crate::physics::{
     axial_bar::AxialBar, cooling_channel::CoolingChannel, elastic_solid::ElasticSolid,
     laminar_channel::LaminarChannel,
 };
+use caekit_mesh::{GeometryRevision, MeshMetrics};
 use caekit_numerics::LinearSettings;
 use caekit_types::error::nonempty;
 

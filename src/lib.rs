@@ -1,19 +1,17 @@
 //! Versioned multiphysics models, checked reference solvers, and reproducible results.
 
 mod interface;
-mod mesh;
 mod model;
 pub mod physics;
 mod result;
-mod tetra;
 
+pub use caekit_mesh::{
+    AxisFrame, FaceRegion, GeometryRevision, LineMesh, MeshMetrics, MeshQuality, TetraMesh,
+};
 pub use caekit_numerics::{Convergence, LinearSettings, StopReason};
 pub use caekit_types::{Balance, Error, MaterialSource, Output, Quantity, SampleLocation};
-pub use mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics, MeshQuality};
 pub use model::{MODEL_SCHEMA_VERSION, Model, ModelCheck, Physics, Units};
 pub use result::{Execution, RESULT_SCHEMA_VERSION, RunReport};
-
-pub use tetra::{FaceRegion, TetraMesh};
 
 use sha2::{Digest, Sha256};
 
