@@ -16,14 +16,31 @@ use sha2::{Digest, Sha256};
 
 /// Validate and solve a model on the reference double-precision CPU path.
 pub fn solve(model: &Model) -> Result<RunReport, Error> {
-    let check = model.validate()?;
-    let hash = Sha256::digest(serde_json::to_vec(model)?);
-    let mut solution = match &model.physics {
-        Physics::AxialBar(case) => case.solve(model.linear_solver)?,
-        Physics::ElasticSolid(case) => case.solve(model.linear_solver, &model.outputs)?,
-        Physics::LaminarChannel(case) => case.solve(model.linear_solver)?,
-        Physics::CoolingChannel(case) => case.solve(model.linear_solver, &model.outputs)?,
+    model.validate_request()?;
+    let (meshes, mut solution) = match &model.physics {
+        Physics::AxialBar(case) => (vec![case.validate()?], case.solve(model.linear_solver)?),
+        Physics::ElasticSolid(case) => {
+            let (mesh, solution) = case.solve_with_metrics(model.linear_solver, &model.outputs)?;
+            (vec![mesh], solution)
+        }
+        Physics::LaminarChannel(case) => (
+            vec![case.validate("physics")?],
+            case.solve(model.linear_solver)?,
+        ),
+        Physics::CoolingChannel(case) => (
+            case.validate()?,
+            case.solve(model.linear_solver, &model.outputs)?,
+        ),
+        Physics::HeatConduction(case) => {
+            let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
+            (vec![mesh], solution)
+        }
+        Physics::ThermoelasticSolid(case) => {
+            let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
+            (vec![mesh], solution)
+        }
     };
+    let hash = Sha256::digest(serde_json::to_vec(model)?);
 
     for (key, quantity) in &solution.quantities {
         if !quantity.all_finite() {
@@ -46,7 +63,7 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
         model_name: model.name.clone(),
         model_sha256: format!("{hash:x}"),
         geometry: model.physics.geometry().into_iter().cloned().collect(),
-        meshes: check.meshes,
+        meshes,
         execution: Execution::reference_cpu(),
         method: solution.method.to_owned(),
         stop_reason,

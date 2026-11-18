@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use caekit_mesh::tetra::{Tet, TetraTopology, cross, dot, subtract};
+use caekit_mesh::tetra::{CheckedTetraMesh, Tet, TetraTopology, cross, dot, subtract};
 use caekit_mesh::{GeometryRevision, MeshMetrics, TetraMesh};
 use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason, norm};
 use caekit_types::error::{finite, nonempty, positive};
@@ -20,6 +20,36 @@ pub struct ElasticSolid {
     pub boundary_conditions: Vec<SolidBoundary>,
     #[serde(default)]
     pub body_force_n_m3: [f64; 3],
+}
+
+/// Mechanical inputs for an analysis that supplies its own solid mesh.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SolidMechanics {
+    pub material: IsotropicElasticMaterial,
+    pub boundary_conditions: Vec<SolidBoundary>,
+    #[serde(default)]
+    pub body_force_n_m3: [f64; 3],
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThermalExpansion {
+    pub reference_temperature_k: f64,
+    pub linear_expansion_coefficient_per_k: f64,
+}
+
+impl ThermalExpansion {
+    pub fn validate(self) -> Result<(), Error> {
+        positive(
+            "physics.expansion.reference_temperature_k",
+            self.reference_temperature_k,
+        )?;
+        finite(
+            "physics.expansion.linear_expansion_coefficient_per_k",
+            self.linear_expansion_coefficient_per_k,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +129,40 @@ impl Lame {
     }
 }
 
+struct ElasticInputs<'a> {
+    material: &'a IsotropicElasticMaterial,
+    boundary_conditions: &'a [SolidBoundary],
+    body_force_n_m3: [f64; 3],
+    path: &'static str,
+}
+
+pub struct PreparedElasticSolid<'a> {
+    inputs: ElasticInputs<'a>,
+    mesh: &'a TetraMesh,
+    topology: &'a TetraTopology<'a>,
+    lame: Lame,
+    prescribed: Vec<Option<f64>>,
+}
+
+struct ThermalStrain {
+    nodal: Vec<f64>,
+    three_bulk_modulus_pa: f64,
+}
+
+impl ThermalStrain {
+    fn mean(values: [f64; 4]) -> f64 {
+        values.into_iter().map(|v| v * 0.25).sum()
+    }
+
+    fn cell_moments(&self, nodes: [usize; 4]) -> (f64, f64) {
+        let values = nodes.map(|node| self.nodal[node]);
+        let mean = Self::mean(values);
+        // The exact P1 tetrahedral variance follows from E[N_i^2]=1/10 and E[N_i N_j]=1/20.
+        let variance = values.into_iter().map(|v| (v - mean).powi(2)).sum::<f64>() / 20.0;
+        (mean, variance)
+    }
+}
+
 impl ElasticSolid {
     pub const OUTPUTS: &[Output] = &[
         Output::DisplacementVector,
@@ -110,43 +174,113 @@ impl ElasticSolid {
     const METHOD: &str = "static_small_strain_isotropic_p1_tetrahedral_fem";
 
     pub fn validate(&self) -> Result<MeshMetrics, Error> {
-        let topology = self.mesh.check("physics.mesh")?;
+        let mesh = self.checked_mesh()?;
+        self.inputs().prepare(&mesh)?;
+        Ok(mesh.into_metrics())
+    }
+
+    /// Solve a case accepted by `validate` with valid linear solver settings.
+    pub fn solve(
+        &self,
+        settings: LinearSettings,
+        outputs: &[Output],
+    ) -> Result<Solution<Convergence>, Error> {
+        self.solve_with_metrics(settings, outputs)
+            .map(|(_, result)| result)
+    }
+
+    pub fn solve_with_metrics(
+        &self,
+        settings: LinearSettings,
+        outputs: &[Output],
+    ) -> Result<(MeshMetrics, Solution<Convergence>), Error> {
+        let mesh = self.checked_mesh()?;
+        let result = self
+            .inputs()
+            .prepare(&mesh)?
+            .solve(settings, outputs, None)?;
+        Ok((mesh.into_metrics(), result))
+    }
+
+    fn checked_mesh(&self) -> Result<CheckedTetraMesh<'_>, Error> {
+        let mesh = self.mesh.checked("physics.mesh")?;
         self.geometry.validate("physics.geometry")?;
-        nonempty("physics.material.id", &self.material.id)?;
+        Ok(mesh)
+    }
+
+    fn inputs(&self) -> ElasticInputs<'_> {
+        ElasticInputs {
+            material: &self.material,
+            boundary_conditions: &self.boundary_conditions,
+            body_force_n_m3: self.body_force_n_m3,
+            path: "physics",
+        }
+    }
+}
+
+impl SolidMechanics {
+    pub fn prepare<'a>(
+        &'a self,
+        mesh: &'a CheckedTetraMesh<'a>,
+    ) -> Result<PreparedElasticSolid<'a>, Error> {
+        ElasticInputs {
+            material: &self.material,
+            boundary_conditions: &self.boundary_conditions,
+            body_force_n_m3: self.body_force_n_m3,
+            path: "physics.mechanical",
+        }
+        .prepare(mesh)
+    }
+}
+
+impl<'a> ElasticInputs<'a> {
+    fn prepare(self, checked: &'a CheckedTetraMesh<'a>) -> Result<PreparedElasticSolid<'a>, Error> {
+        let path = self.path;
+        nonempty(&format!("{path}.material.id"), &self.material.id)?;
         positive(
-            "physics.material.young_modulus_pa",
+            &format!("{path}.material.young_modulus_pa"),
             self.material.young_modulus_pa,
         )?;
         if !(-1.0 < self.material.poisson_ratio && self.material.poisson_ratio < 0.5) {
             return Err(Error::invalid(
-                "physics.material.poisson_ratio",
+                format!("{path}.material.poisson_ratio"),
                 "must be strictly between -1 and 0.5",
             ));
         }
-        Lame::from_material(&self.material)?;
-        self.material.source.validate("physics.material.source")?;
+        let lame = Lame::from_material(self.material)?;
+        self.material
+            .source
+            .validate(&format!("{path}.material.source"))?;
         for (i, value) in self.body_force_n_m3.iter().enumerate() {
-            finite(&format!("physics.body_force_n_m3[{i}]"), *value)?;
+            finite(&format!("{path}.body_force_n_m3[{i}]"), *value)?;
         }
-        let values = self.prescribed(&topology)?;
-        if !supports_all_rigid_modes(&self.mesh.vertices_m, &values) {
+        let (mesh, topology) = (checked.mesh(), checked.topology());
+        let prescribed = self.prescribed(mesh.vertices_m.len(), topology)?;
+        if !supports_all_rigid_modes(&mesh.vertices_m, &prescribed) {
             return Err(Error::invalid(
-                "physics.boundary_conditions",
+                format!("{path}.boundary_conditions"),
                 "prescribed displacement components must restrain all six rigid-body modes",
             ));
         }
-        Ok(topology.metrics)
+        Ok(PreparedElasticSolid {
+            inputs: self,
+            mesh,
+            topology,
+            lame,
+            prescribed,
+        })
     }
 
-    fn prescribed(&self, topology: &TetraTopology<'_>) -> Result<Vec<Option<f64>>, Error> {
-        let dofs =
-            self.mesh
-                .vertices_m
-                .len()
-                .checked_mul(3)
-                .ok_or_else(|| Error::InsufficientMemory {
-                    resource: "solid degrees of freedom".to_owned(),
-                })?;
+    fn prescribed(
+        &self,
+        node_count: usize,
+        topology: &TetraTopology<'_>,
+    ) -> Result<Vec<Option<f64>>, Error> {
+        let dofs = node_count
+            .checked_mul(3)
+            .ok_or_else(|| Error::InsufficientMemory {
+                resource: "solid degrees of freedom".to_owned(),
+            })?;
         let mut values = Vec::new();
         values
             .try_reserve_exact(dofs)
@@ -156,7 +290,7 @@ impl ElasticSolid {
         values.resize(dofs, None);
 
         for (i, boundary) in self.boundary_conditions.iter().enumerate() {
-            let path = format!("physics.boundary_conditions[{i}]");
+            let path = format!("{}.boundary_conditions[{i}]", self.path);
             let region = boundary.region();
             let Some(faces) = topology.boundaries.get(region) else {
                 return Err(Error::invalid(
@@ -208,27 +342,82 @@ impl ElasticSolid {
         }
         Ok(values)
     }
+}
 
-    /// Solve a case accepted by `validate` with valid linear solver settings.
-    pub fn solve(
+impl PreparedElasticSolid<'_> {
+    /// Solve with temperatures from this mesh in its original vertex order.
+    /// A temperature is the sum of the supplied datum and its nodal offset.
+    pub fn solve_thermoelastic(
         &self,
         settings: LinearSettings,
         outputs: &[Output],
+        expansion: ThermalExpansion,
+        datum_k: f64,
+        offsets_k: &[f64],
     ) -> Result<Solution<Convergence>, Error> {
-        let topology = self.mesh.check("physics.mesh")?;
-        let prescribed = self.prescribed(&topology)?;
-        let lame = Lame::from_material(&self.material)?;
+        expansion.validate()?;
+        positive("solid temperature datum", datum_k)?;
+        if offsets_k.len() != self.mesh.vertices_m.len()
+            || !offsets_k.iter().all(|offset| offset.is_finite())
+        {
+            return Err(Error::invalid(
+                "solid temperature field",
+                "requires one finite temperature offset per mesh vertex",
+            ));
+        }
+        if expansion.linear_expansion_coefficient_per_k == 0.0 {
+            return self.solve(settings, outputs, None);
+        }
+
+        let datum_change = datum_k - expansion.reference_temperature_k;
+        let nodal: Vec<_> = offsets_k
+            .iter()
+            .map(|offset| expansion.linear_expansion_coefficient_per_k * (datum_change + offset))
+            .collect();
+        if !nodal.iter().all(|strain| strain.is_finite()) {
+            return Err(Error::NonFiniteResult {
+                quantity: "solid thermal strain".to_owned(),
+            });
+        }
+        if nodal.iter().all(|&strain| strain == 0.0) {
+            return self.solve(settings, outputs, None);
+        }
+
+        let material = self.inputs.material;
+        let three_bulk_modulus_pa =
+            material.young_modulus_pa / (1.0 - 2.0 * material.poisson_ratio);
+        let thermal = ThermalStrain {
+            nodal,
+            three_bulk_modulus_pa,
+        };
+        self.solve(settings, outputs, Some(&thermal))
+    }
+
+    fn solve(
+        &self,
+        settings: LinearSettings,
+        outputs: &[Output],
+        thermal: Option<&ThermalStrain>,
+    ) -> Result<Solution<Convergence>, Error> {
+        let topology = self.topology;
         let vertices = &self.mesh.vertices_m;
-        let loads = self.assemble_forces(&topology);
-        let (translation, relative) = crate::relative_constraints::<3>(&prescribed);
-        let mut system = ConstrainedSystem::new(relative, &loads);
+        let loads = self.assemble_forces();
+        let prescribed = &self.prescribed;
+        let (translation, relative) = crate::relative_constraints::<3>(prescribed);
+        let equivalent_loads = thermal
+            .map(|strain| self.add_thermal_loads(&loads, strain))
+            .transpose()?;
+        let mut system =
+            ConstrainedSystem::new(relative, equivalent_loads.as_deref().unwrap_or(&loads));
         for (tet, nodes) in topology.elements.iter().zip(&self.mesh.cells) {
             for (a, node_a) in nodes.iter().enumerate() {
                 for (b, node_b) in nodes.iter().enumerate() {
                     for i in 0..3 {
                         for j in 0..3 {
                             let stiffness = tet.volume
-                                * lame.stiffness(tet.gradients[a], tet.gradients[b], i, j);
+                                * self
+                                    .lame
+                                    .stiffness(tet.gradients[a], tet.gradients[b], i, j);
                             system.add(3 * node_a + i, 3 * node_b + j, stiffness);
                         }
                     }
@@ -238,7 +427,7 @@ impl ElasticSolid {
 
         let (displacement, convergence) = system.solve(settings, "solid_elastic_equilibrium", "N");
         let stop_reason = convergence.stop_reason;
-        let mut result = Solution::new(Self::METHOD, vec![convergence]);
+        let mut result = Solution::new(ElasticSolid::METHOD, vec![convergence]);
         if stop_reason != StopReason::Converged {
             return Ok(result);
         }
@@ -254,8 +443,17 @@ impl ElasticSolid {
         let want_von_mises = outputs.contains(&Output::VonMisesStress);
         let mut energy = 0.0;
         for (tet, &nodes) in topology.elements.iter().zip(&self.mesh.cells) {
-            let strain = strain(tet, nodes.map(|i| u[i]));
-            let stress = lame.stress(strain);
+            let mut strain = strain(tet, nodes.map(|i| u[i]));
+            if let Some(thermal) = thermal {
+                let (mean, variance) = thermal.cell_moments(nodes);
+                for (axis, row) in strain.iter_mut().enumerate() {
+                    row[axis] -= mean;
+                }
+                // Integrate the part of elastic energy from the varying isotropic strain.
+                // Its linear cross-term about the centroid has zero mean.
+                energy += 1.5 * tet.volume * (thermal.three_bulk_modulus_pa * variance);
+            }
+            let stress = self.lame.stress(strain);
             for (a, node) in nodes.into_iter().enumerate() {
                 for (i, row) in stress.iter().enumerate() {
                     internal[node][i] += tet.volume * dot(*row, tet.gradients[a]);
@@ -345,16 +543,37 @@ impl ElasticSolid {
         Ok(result)
     }
 
-    fn assemble_forces(&self, topology: &TetraTopology<'_>) -> Vec<f64> {
-        let mut loads = vec![0.0; 3 * self.mesh.vertices_m.len()];
+    fn add_thermal_loads(&self, loads: &[f64], thermal: &ThermalStrain) -> Result<Vec<f64>, Error> {
+        let mut rhs = loads.to_vec();
+        for (tet, &nodes) in self.topology.elements.iter().zip(&self.mesh.cells) {
+            let mean = ThermalStrain::mean(nodes.map(|node| thermal.nodal[node]));
+            let thermal_normal_stress = thermal.three_bulk_modulus_pa * mean;
+            for (a, node) in nodes.into_iter().enumerate() {
+                for (axis, gradient) in tet.gradients[a].into_iter().enumerate() {
+                    rhs[3 * node + axis] += tet.volume * (thermal_normal_stress * gradient);
+                }
+            }
+        }
+        if rhs.iter().all(|value| value.is_finite()) {
+            Ok(rhs)
+        } else {
+            Err(Error::NonFiniteResult {
+                quantity: "solid thermoelastic loads".to_owned(),
+            })
+        }
+    }
+
+    fn assemble_forces(&self) -> Vec<f64> {
+        let topology = self.topology;
+        let mut loads = vec![0.0; self.prescribed.len()];
         for (tet, nodes) in topology.elements.iter().zip(&self.mesh.cells) {
             for node in nodes {
-                for (i, force) in self.body_force_n_m3.iter().enumerate() {
+                for (i, force) in self.inputs.body_force_n_m3.iter().enumerate() {
                     loads[3 * node + i] += (0.25 * tet.volume) * force;
                 }
             }
         }
-        for condition in &self.boundary_conditions {
+        for condition in self.inputs.boundary_conditions {
             if let SolidBoundary::Displacement { .. } = condition {
                 continue;
             }

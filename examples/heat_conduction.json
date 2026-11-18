@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "name": "Linear heat conduction across a tetrahedral block",
+  "units": "si",
+  "physics": {
+    "kind": "heat_conduction",
+    "geometry": {
+      "id": "conductive-block",
+      "revision": "1"
+    },
+    "mesh": {
+      "vertices_m": [
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.1],
+        [0.0, 0.1, 0.0],
+        [0.0, 0.1, 0.1],
+        [0.1, 0.0, 0.0],
+        [0.1, 0.0, 0.1],
+        [0.1, 0.1, 0.0],
+        [0.1, 0.1, 0.1],
+        [0.05, 0.05, 0.05]
+      ],
+      "cells": [
+        [8, 0, 1, 3],
+        [8, 0, 3, 2],
+        [8, 4, 7, 5],
+        [8, 4, 6, 7],
+        [8, 0, 5, 1],
+        [8, 0, 4, 5],
+        [8, 2, 3, 7],
+        [8, 2, 7, 6],
+        [8, 0, 2, 6],
+        [8, 0, 6, 4],
+        [8, 1, 7, 3],
+        [8, 1, 5, 7]
+      ],
+      "boundary_regions": [
+        {
+          "name": "x0",
+          "faces": [
+            [0, 1, 3],
+            [0, 2, 3]
+          ]
+        },
+        {
+          "name": "x1",
+          "faces": [
+            [4, 5, 7],
+            [4, 6, 7]
+          ]
+        },
+        {
+          "name": "y0",
+          "faces": [
+            [0, 1, 5],
+            [0, 4, 5]
+          ]
+        },
+        {
+          "name": "y1",
+          "faces": [
+            [2, 3, 7],
+            [2, 6, 7]
+          ]
+        },
+        {
+          "name": "z0",
+          "faces": [
+            [0, 2, 6],
+            [0, 4, 6]
+          ]
+        },
+        {
+          "name": "z1",
+          "faces": [
+            [1, 3, 7],
+            [1, 5, 7]
+          ]
+        }
+      ]
+    },
+    "thermal": {
+      "material": {
+        "id": "reference-conductive-solid",
+        "thermal_conductivity_w_m_k": 20,
+        "source": {
+          "citation": "CAEKit analytical steady conduction fixture",
+          "usage_terms": "Synthetic reference input covered by the CAEKit project license"
+        }
+      },
+      "boundary_conditions": [
+        {
+          "kind": "temperature",
+          "region": "x0",
+          "temperature_k": 400
+        },
+        {
+          "kind": "temperature",
+          "region": "x1",
+          "temperature_k": 300
+        },
+        {
+          "kind": "insulation",
+          "region": "y0"
+        }
+      ]
+    }
+  },
+  "outputs": [
+    "solid_temperature",
+    "solid_heat_flux",
+    "boundary_heat_rate"
+  ]
+}

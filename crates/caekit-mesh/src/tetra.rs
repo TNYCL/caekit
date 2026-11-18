@@ -61,6 +61,26 @@ pub struct TetraTopology<'a> {
     pub metrics: MeshMetrics,
 }
 
+/// A checked topology bound to the mesh whose node and cell ordering it follows.
+pub struct CheckedTetraMesh<'a> {
+    mesh: &'a TetraMesh,
+    topology: TetraTopology<'a>,
+}
+
+impl<'a> CheckedTetraMesh<'a> {
+    pub fn mesh(&self) -> &'a TetraMesh {
+        self.mesh
+    }
+
+    pub fn topology(&self) -> &TetraTopology<'a> {
+        &self.topology
+    }
+
+    pub fn into_metrics(self) -> MeshMetrics {
+        self.topology.metrics
+    }
+}
+
 #[derive(Debug)]
 struct FaceUse {
     first: usize,
@@ -70,6 +90,13 @@ struct FaceUse {
 }
 
 impl TetraMesh {
+    pub fn checked<'a>(&'a self, path: &str) -> Result<CheckedTetraMesh<'a>, Error> {
+        Ok(CheckedTetraMesh {
+            mesh: self,
+            topology: self.check(path)?,
+        })
+    }
+
     pub fn check<'a>(&'a self, path: &str) -> Result<TetraTopology<'a>, Error> {
         let vertices = &self.vertices_m;
         if vertices.len() < 4 || self.cells.is_empty() {

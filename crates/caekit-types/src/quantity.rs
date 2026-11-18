@@ -28,6 +28,9 @@ pub enum Output {
     VonMisesStress,
     NodalReaction,
     ElasticEnergy,
+    SolidTemperature,
+    SolidHeatFlux,
+    BoundaryHeatRate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -21,6 +21,14 @@ defined by that mesh. The tetrahedral mesh uses zero-based volume connectivity
 and named exterior triangle sets. Assignments belong to the supplied geometry
 revision.
 
+The `heat_conduction` and `thermoelastic_solid` cases put thermal material and
+boundary conditions under `physics.thermal`. The applied
+`inward_heat_flux_w_m2` is positive into the solid, opposite to the outward
+face normal. Heat rates by region use the same sign. Unassigned thermal
+surfaces are insulated. The thermoelastic case adds `physics.mechanical` and
+`physics.expansion` and uses one shared mesh and geometry revision.
+[Heat conduction](physics/heat-conduction.md) · [Thermoelasticity](physics/thermoelastic-solid.md)
+
 The default linear settings are a relative residual tolerance of 1e-10, an
 absolute residual tolerance of zero and an iteration limit of 20,000. For the
 current reference algorithm the threshold is
@@ -28,6 +36,13 @@ current reference algorithm the threshold is
 in the solved equation's residual units. A run reports this threshold and an
 independently recomputed final residual `||b − Ax||₂`. History entries during
 conjugate gradient are recursive residual estimates.
+
+In `heat_conduction`, the top-level `linear_solver` uses W for the absolute
+tolerance. In `thermoelastic_solid`, `linear_solver` uses N and
+`physics.thermal_solver` uses W. Each stage reports its own threshold,
+iterations, stop reason and final true residual. The mechanical stage runs
+after a converged thermal stage. An iteration-limit result includes the
+traces of the stages that ran and withholds physical fields and balances.
 
 The structural solvers remove a constant prescribed translation in each
 direction before forming the reduced system. Stresses, reactions and
@@ -41,6 +56,7 @@ numerical input affect the digest. Preserve the source model with the result.
 The report includes geometry revisions, mesh metrics, the method and execution
 metadata. Quantities carry units and their sampling locations. Signed balance
 terms and the signed imbalance are reported independently of requested fields.
+Material citations and usage terms are stored in the hashed source model.
 
 The CLI `check` command writes validation and mesh metrics as JSON. The `run`
 command writes the run report as JSON. Exit code 0 indicates a converged run.
