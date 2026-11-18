@@ -1,2 +1,17 @@
 /target/
 /runs/
+
+# Python package (crates/caekit-py)
+__pycache__/
+.pytest_cache/
+.venv/
+/dist/
+/crates/caekit-py/dist/
+/crates/caekit-py/python/caekit/*.so
+/crates/caekit-py/python/caekit/*.pyd
+
+# WebAssembly package (crates/caekit-wasm): build output and the pinned wasm-bindgen CLI
+/crates/caekit-wasm/.tools/
+/crates/caekit-wasm/pkg/
+/crates/caekit-wasm/npm/
+node_modules/

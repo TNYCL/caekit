@@ -1,0 +1,31 @@
+[package]
+name = "caekit-py"
+description = "Python bindings for CAEKit multiphysics engineering simulation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+# Published to PyPI as `caekit` (maturin), not to crates.io.
+publish = false
+
+[lib]
+name = "_caekit"
+crate-type = ["cdylib"]
+# The `caekit` library crate owns the documentation name.
+doc = false
+
+[dependencies]
+caekit.workspace = true
+serde_json.workspace = true
+# maturin enables `pyo3/extension-module` (pyproject.toml); plain cargo only checks the crate.
+pyo3 = { version = "0.29.3", features = ["abi3-py39"] }
+
+# FFI crate: the binding macros need `unsafe`, so the workspace lints are restated without
+# the ban on it.
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"

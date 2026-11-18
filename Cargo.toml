@@ -6,6 +6,7 @@ members = [
     "crates/caekit-mechanics",
     "crates/caekit-mesh",
     "crates/caekit-numerics",
+    "crates/caekit-py",
     "crates/caekit-thermal",
     "crates/caekit-types",
 ]
