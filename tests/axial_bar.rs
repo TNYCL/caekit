@@ -34,6 +34,38 @@ fn solves_analytic_tension_case() {
 }
 
 #[test]
+fn rigid_translation_preserves_axial_stress_and_force_balance() {
+    let mut model = Model::from_json(INPUT).unwrap();
+    let Physics::AxialBar(case) = &mut model.physics else {
+        unreachable!()
+    };
+    case.boundary_conditions = vec![
+        BarBoundary::Displacement {
+            region: "clamp".into(),
+            value_m: 0.001,
+        },
+        BarBoundary::Force {
+            region: "tip".into(),
+            value_n: 1e-6,
+        },
+    ];
+    let report = solve(&model).unwrap();
+    assert_eq!(report.stop_reason, StopReason::Converged);
+    let Quantity::Field { values, .. } = &report.quantities[&Output::AxialStress] else {
+        panic!("expected a stress field");
+    };
+    for &stress in values {
+        close(stress, 0.01, 1e-12);
+    }
+    close(
+        region(&report, Output::EndDisplacement, "tip"),
+        0.001 + 5e-14,
+        3e-19,
+    );
+    close(report.balances[0].imbalance, 0.0, 1e-16);
+}
+
+#[test]
 fn loaded_start_has_negative_projection_and_geometry_is_preserved() {
     let mut model = Model::from_json(INPUT).unwrap();
     let Physics::AxialBar(case) = &mut model.physics else {

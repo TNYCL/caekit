@@ -29,6 +29,11 @@ in the solved equation's residual units. A run reports this threshold and an
 independently recomputed final residual `||b − Ax||₂`. History entries during
 conjugate gradient are recursive residual estimates.
 
+The structural solvers remove a constant prescribed translation in each
+direction before forming the reduced system. Stresses, reactions and
+strain energy use these relative displacements. Reported nodal displacements
+include the translation and preserve the original prescribed values.
+
 The version 1 result records a SHA-256 digest of the compact serialization of
 the typed model with defaults applied. Input indentation and object key order
 do not affect the digest. Array order and explicit changes to physical or

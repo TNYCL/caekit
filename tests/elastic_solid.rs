@@ -82,6 +82,49 @@ fn completes_the_three_dimensional_patch_test() {
 }
 
 #[test]
+fn small_traction_is_resolved_under_an_imposed_rigid_translation() {
+    let mut model = Model::from_json(INPUT).unwrap();
+    let case = elastic(&mut model);
+    let translation = [0.001, -0.002, 0.004];
+    for boundary in &mut case.boundary_conditions {
+        match boundary {
+            SolidBoundary::Displacement { components_m, .. } => {
+                for (component, shift) in components_m.iter_mut().zip(translation) {
+                    if let Some(value) = component {
+                        *value += shift;
+                    }
+                }
+            }
+            SolidBoundary::Traction { components_pa, .. } => *components_pa = [0.001, 0.0, 0.0],
+            SolidBoundary::Pressure { .. } => unreachable!(),
+        }
+    }
+    let report = solve(&model).unwrap();
+    assert_eq!(report.stop_reason, StopReason::Converged);
+    // The exact uniaxial strain is traction / E = 5e-15.
+    close(scalar(&report, Output::ElasticEnergy), 1e-18, 1e-26);
+    close(
+        balance(&report, "solid_force_x").terms["reaction"],
+        -2e-4,
+        1e-12,
+    );
+    let Quantity::VectorField {
+        positions_m,
+        values,
+        ..
+    } = &report.quantities[&Output::DisplacementVector]
+    else {
+        panic!("expected a displacement field");
+    };
+    for (&[x, y, z], &u) in positions_m.iter().zip(values) {
+        let strain = 5e-15;
+        close(u[0], translation[0] + strain * (x - 1.0), 1e-18);
+        close(u[1], translation[1] - 0.31 * strain * (y - 2.0), 1e-18);
+        close(u[2], translation[2] - 0.31 * strain * (z + 1.0), 1e-18);
+    }
+}
+
+#[test]
 fn gauge_pressure_uses_outward_normals_and_ambient_reference() {
     let mut model = Model::from_json(INPUT).unwrap();
     let case = elastic(&mut model);

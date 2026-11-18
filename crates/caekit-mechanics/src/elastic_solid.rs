@@ -220,7 +220,8 @@ impl ElasticSolid {
         let lame = Lame::from_material(&self.material)?;
         let vertices = &self.mesh.vertices_m;
         let loads = self.assemble_forces(&topology);
-        let mut system = ConstrainedSystem::new(prescribed.clone(), &loads);
+        let (translation, relative) = crate::relative_constraints::<3>(&prescribed);
+        let mut system = ConstrainedSystem::new(relative, &loads);
         for (tet, nodes) in topology.elements.iter().zip(&self.mesh.cells) {
             for (a, node_a) in nodes.iter().enumerate() {
                 for (b, node_b) in nodes.iter().enumerate() {
@@ -242,7 +243,7 @@ impl ElasticSolid {
             return Ok(result);
         }
 
-        let u: Vec<[f64; 3]> = displacement
+        let mut u: Vec<[f64; 3]> = displacement
             .chunks_exact(3)
             .map(|values| [values[0], values[1], values[2]])
             .collect();
@@ -293,6 +294,11 @@ impl ElasticSolid {
             .quantities
             .insert(Output::ElasticEnergy, Quantity::scalar("J", energy));
         if outputs.contains(&Output::DisplacementVector) {
+            for (node, fixed) in u.iter_mut().zip(prescribed.chunks_exact(3)) {
+                for axis in 0..3 {
+                    node[axis] = fixed[axis].unwrap_or(node[axis] + translation[axis]);
+                }
+            }
             result.quantities.insert(
                 Output::DisplacementVector,
                 Quantity::VectorField {

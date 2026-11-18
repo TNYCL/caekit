@@ -135,7 +135,8 @@ impl AxialBar {
 
         let area = self.geometry.cross_section_area_m2;
         let modulus = self.material.young_modulus_pa;
-        let mut system = ConstrainedSystem::new(prescribed, &loads);
+        let ([translation], relative) = crate::relative_constraints(&prescribed);
+        let mut system = ConstrainedSystem::new(relative, &loads);
         for (element, edge) in vertices.windows(2).enumerate() {
             let stiffness = modulus * area / (edge[1] - edge[0]);
             system.add(element, element, stiffness);
@@ -144,7 +145,7 @@ impl AxialBar {
             system.add(element + 1, element + 1, stiffness);
         }
 
-        let (displacements, convergence) = system.solve(settings, "elastic_equilibrium", "N");
+        let (mut displacements, convergence) = system.solve(settings, "elastic_equilibrium", "N");
         let reason = convergence.stop_reason;
         let mut result = Solution::new(Self::METHOD, vec![convergence]);
         if reason != StopReason::Converged {
@@ -157,6 +158,9 @@ impl AxialBar {
             .zip(displacements.windows(2))
             .map(|(edge, values)| modulus * ((values[1] - values[0]) / (edge[1] - edge[0])))
             .collect();
+        for (u, fixed) in displacements.iter_mut().zip(prescribed) {
+            *u = fixed.unwrap_or(*u + translation);
+        }
         let mut reactions = BTreeMap::new();
         for boundary in &self.boundary_conditions {
             if let BarBoundary::Displacement { region, .. } = boundary {
