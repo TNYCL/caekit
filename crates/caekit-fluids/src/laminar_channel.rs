@@ -2,10 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AxisFrame, Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
+use caekit_mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics};
 use caekit_numerics::{Convergence, LinearSettings, SparseAssembly, StopReason};
 use caekit_types::error::{nonempty, positive};
 use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
+use caekit_types::{Error, MaterialSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -60,7 +61,7 @@ impl ChannelGeometry {
         Ok(())
     }
 
-    pub(crate) fn position(&self, axial_m: f64, transverse_m: f64) -> [f64; 3] {
+    pub fn position(&self, axial_m: f64, transverse_m: f64) -> [f64; 3] {
         let origin = self.axial_frame.position(axial_m);
         std::array::from_fn(|i| origin[i] + transverse_m * self.transverse_direction[i])
     }
@@ -123,19 +124,25 @@ impl PressureAtPort {
     }
 }
 
-pub(crate) struct FlowState {
+pub struct FlowState {
     velocity_m_s: Vec<f64>,
     centers_m: Vec<f64>,
     volume_flow_m3_s: f64,
-    pub(crate) mass_flow_kg_s: f64,
+    mass_flow_kg_s: f64,
     pressure_loss_pa: f64,
     inlet_absolute_pa: f64,
     outlet_absolute_pa: f64,
     wall_drag_n: [f64; 2],
 }
 
+impl FlowState {
+    pub fn mass_flow_kg_s(&self) -> f64 {
+        self.mass_flow_kg_s
+    }
+}
+
 impl LaminarChannel {
-    pub(crate) const OUTPUTS: &[Output] = &[
+    pub const OUTPUTS: &[Output] = &[
         Output::AxialVelocity,
         Output::VolumeFlowRate,
         Output::MassFlowRate,
@@ -146,7 +153,7 @@ impl LaminarChannel {
     ];
     const METHOD: &str = "steady_fully_developed_laminar_channel_cell_centered_fvm";
 
-    pub(crate) fn validate(&self, path: &str) -> Result<MeshMetrics, Error> {
+    pub fn validate(&self, path: &str) -> Result<MeshMetrics, Error> {
         self.geometry.validate(&format!("{path}.geometry"))?;
         let metrics = self
             .mesh
@@ -211,7 +218,8 @@ impl LaminarChannel {
         Ok(metrics)
     }
 
-    pub(crate) fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
+    /// Solve a validated channel model and construct its standalone outputs.
+    pub fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
         let (convergence, state) = self.compute(settings)?;
         let mut result = Solution::new(Self::METHOD, vec![convergence]);
         if let Some(state) = state {
@@ -220,7 +228,8 @@ impl LaminarChannel {
         Ok(result)
     }
 
-    pub(crate) fn compute(
+    /// Solve the hydraulic stage of a validated channel model.
+    pub fn compute(
         &self,
         settings: LinearSettings,
     ) -> Result<(Convergence, Option<FlowState>), Error> {
@@ -332,7 +341,7 @@ impl LaminarChannel {
         Ok((convergence, Some(state)))
     }
 
-    pub(crate) fn add_outputs(
+    pub fn add_outputs(
         &self,
         state: FlowState,
         result: &mut Solution<Convergence>,

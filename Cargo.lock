@@ -15,6 +15,7 @@ dependencies = [
 name = "caekit"
 version = "0.1.0"
 dependencies = [
+ "caekit-fluids",
  "caekit-mechanics",
  "caekit-mesh",
  "caekit-numerics",
@@ -22,6 +23,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "caekit-fluids"
+version = "0.1.0"
+dependencies = [
+ "caekit-mesh",
+ "caekit-numerics",
+ "caekit-types",
+ "serde",
 ]
 
 [[package]]

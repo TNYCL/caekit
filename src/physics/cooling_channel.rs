@@ -393,7 +393,7 @@ impl EnergySystem {
         let wall = &case.wall.axial_mesh.vertices_m;
         let fluid = &case.coolant.axial_mesh.vertices_m;
         let h = case.interface.heat_transfer_coefficient_w_m2_k;
-        let capacity = flow.mass_flow_kg_s * case.coolant.specific_heat_j_kg_k;
+        let capacity = flow.mass_flow_kg_s() * case.coolant.specific_heat_j_kg_k;
         positive("coolant heat capacity flow rate", capacity)?;
 
         let wall_area: Vec<_> = wall
