@@ -26,8 +26,14 @@ pub struct ConductiveWall {
 #[serde(deny_unknown_fields)]
 pub struct ConductiveMaterial {
     pub id: String,
+    #[serde(deserialize_with = "deserialize_conductivity")]
     pub thermal_conductivity_w_m_k: f64,
     pub source: MaterialSource,
+}
+
+fn deserialize_conductivity<'de, D: serde::Deserializer<'de>>(reader: D) -> Result<f64, D::Error> {
+    f64::deserialize(reader)
+        .map_err(|error| serde::de::Error::custom(format!("thermal_conductivity_w_m_k: {error}")))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

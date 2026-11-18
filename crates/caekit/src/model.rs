@@ -95,9 +95,11 @@ impl Model {
             schema_version: u32,
         }
 
-        let header: Header = serde_json::from_slice(bytes)?;
+        let header: Header =
+            serde_json::from_slice(bytes).map_err(|error| model_json_error(bytes, error))?;
         check_version(header.schema_version)?;
-        let model: Self = serde_json::from_slice(bytes)?;
+        let model: Self =
+            serde_json::from_slice(bytes).map_err(|error| model_json_error(bytes, error))?;
         model.validate()?;
         Ok(model)
     }
@@ -146,6 +148,21 @@ impl Model {
 
         Ok(())
     }
+}
+
+fn model_json_error(bytes: &[u8], error: serde_json::Error) -> Error {
+    // Some numbers fail while reading the JSON token, before material validation.
+    // Recover the material field path on that error path only.
+    if error.is_syntax() {
+        let mut reader = serde_json::Deserializer::from_slice(bytes);
+        if let Err(annotated) = serde_path_to_error::deserialize::<_, Model>(&mut reader) {
+            let path = annotated.path().to_string();
+            if path.starts_with("physics.thermal.materials[") {
+                return Error::invalid(path, error.to_string());
+            }
+        }
+    }
+    Error::Json(error)
 }
 
 fn check_version(version: u32) -> Result<(), Error> {

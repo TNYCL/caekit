@@ -7,6 +7,7 @@ W/(m·K). The optional constant `volumetric_heat_source_w_m3` defaults to zero.
 Positive `Q` generates heat and negative `Q` removes it. This analysis uses
 steady conduction in a single homogeneous solid. The cooling-channel model
 has its own wall and coolant formulation.
+[Multimaterial heat conduction with ideal contact](multimaterial-heat-conduction.md)
 
 ```sh
 cargo run --locked -- check examples/heat_conduction.json
