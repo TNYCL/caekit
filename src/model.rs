@@ -5,7 +5,9 @@ use crate::Error;
 use crate::error::nonempty;
 use crate::linear::LinearSettings;
 use crate::mesh::{GeometryRevision, MeshMetrics};
-use crate::physics::{axial_bar::AxialBar, laminar_channel::LaminarChannel};
+use crate::physics::{
+    axial_bar::AxialBar, cooling_channel::CoolingChannel, laminar_channel::LaminarChannel,
+};
 use crate::result::Output;
 
 pub const MODEL_SCHEMA_VERSION: u32 = 1;
@@ -34,6 +36,7 @@ pub enum Units {
 pub enum Physics {
     AxialBar(Box<AxialBar>),
     LaminarChannel(Box<LaminarChannel>),
+    CoolingChannel(Box<CoolingChannel>),
 }
 
 impl Physics {
@@ -41,13 +44,18 @@ impl Physics {
         match self {
             Self::AxialBar(case) => vec![&case.geometry.identity],
             Self::LaminarChannel(case) => vec![&case.geometry.identity],
+            Self::CoolingChannel(case) => vec![&case.flow.geometry.identity, &case.wall.identity],
         }
     }
 
-    pub(crate) fn supported_outputs(&self) -> &'static [Output] {
+    pub(crate) fn supports(&self, output: Output) -> bool {
         match self {
-            Self::AxialBar(_) => AxialBar::OUTPUTS,
-            Self::LaminarChannel(_) => LaminarChannel::OUTPUTS,
+            Self::AxialBar(_) => AxialBar::OUTPUTS.contains(&output),
+            Self::LaminarChannel(_) => LaminarChannel::OUTPUTS.contains(&output),
+            Self::CoolingChannel(_) => {
+                LaminarChannel::OUTPUTS.contains(&output)
+                    || CoolingChannel::THERMAL_OUTPUTS.contains(&output)
+            }
         }
     }
 }
@@ -100,7 +108,7 @@ impl Model {
         let mut seen = BTreeSet::new();
         for (i, output) in self.outputs.iter().enumerate() {
             let path = format!("outputs[{i}]");
-            if !self.physics.supported_outputs().contains(output) {
+            if !self.physics.supports(*output) {
                 return Err(Error::invalid(
                     path,
                     "quantity is unavailable for this physics",
@@ -114,6 +122,7 @@ impl Model {
         let meshes = match &self.physics {
             Physics::AxialBar(case) => vec![case.validate()?],
             Physics::LaminarChannel(case) => vec![case.validate("physics")?],
+            Physics::CoolingChannel(case) => case.validate()?,
         };
         Ok(ModelCheck {
             model_schema_version: self.schema_version,

@@ -18,3 +18,6 @@
 - The parallel-plate channel example uses synthetic constant liquid properties
   and geometry under the project license. Its expected pressure loss and
   velocity profile follow from the analytical momentum equation.
+- The cooling channel uses synthetic wall conductivity, fluid heat capacity
+  and an assumed film coefficient under the project license. The analytic
+  reference is a continuous thermal resistance and bulk energy balance.

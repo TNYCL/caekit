@@ -7,6 +7,7 @@ pub enum Error {
     UnsupportedModelVersion(u32),
     InvalidModel { path: String, message: String },
     NonFiniteResult { quantity: String },
+    InsufficientMemory { resource: String },
 }
 
 impl Error {
@@ -29,6 +30,9 @@ impl fmt::Display for Error {
                 )
             }
             Self::InvalidModel { path, message } => write!(f, "{path}: {message}"),
+            Self::InsufficientMemory { resource } => {
+                write!(f, "insufficient memory for {resource}")
+            }
             Self::NonFiniteResult { quantity } => {
                 write!(
                     f,

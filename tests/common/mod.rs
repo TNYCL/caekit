@@ -15,6 +15,7 @@ pub fn scalar(report: &RunReport, output: Output) -> f64 {
     }
 }
 
+#[allow(dead_code)]
 pub fn region(report: &RunReport, output: Output, region: &str) -> f64 {
     match &report.quantities[&output] {
         Quantity::ByRegion { values, .. } => values[region],

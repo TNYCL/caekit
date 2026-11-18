@@ -1,6 +1,7 @@
 //! Versioned multiphysics models, checked reference solvers, and reproducible results.
 
 mod error;
+mod interface;
 mod linear;
 mod mesh;
 mod model;
@@ -24,6 +25,7 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
     let mut solution = match &model.physics {
         Physics::AxialBar(case) => case.solve(model.linear_solver)?,
         Physics::LaminarChannel(case) => case.solve(model.linear_solver)?,
+        Physics::CoolingChannel(case) => case.solve(model.linear_solver, &model.outputs)?,
     };
 
     for (key, quantity) in &solution.quantities {

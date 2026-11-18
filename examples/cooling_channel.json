@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "name": "Laminar coolant heated by a conductive wall",
+  "units": "si",
+  "physics": {
+    "kind": "cooling_channel",
+    "flow": {
+      "geometry": {
+        "identity": {
+          "id": "parallel-plate-channel",
+          "revision": "1"
+        },
+        "axial_frame": {
+          "origin_m": [
+            0,
+            0,
+            0
+          ],
+          "direction": [
+            1,
+            0,
+            0
+          ]
+        },
+        "transverse_direction": [
+          0,
+          1,
+          0
+        ],
+        "length_m": 2,
+        "gap_m": 0.01,
+        "width_m": 0.1,
+        "inlet_region": "inlet",
+        "outlet_region": "outlet"
+      },
+      "mesh": {
+        "vertices_m": [
+          0.0,
+          0.0003125,
+          0.000625,
+          0.0009375,
+          0.00125,
+          0.0015625,
+          0.001875,
+          0.0021875,
+          0.0025,
+          0.0028125,
+          0.003125,
+          0.0034375,
+          0.00375,
+          0.0040625,
+          0.004375,
+          0.0046875,
+          0.005,
+          0.0053125,
+          0.005625,
+          0.0059375,
+          0.00625,
+          0.0065625,
+          0.006875,
+          0.0071875,
+          0.0075,
+          0.0078125,
+          0.008125,
+          0.0084375,
+          0.00875,
+          0.0090625,
+          0.009375,
+          0.0096875,
+          0.01
+        ],
+        "start_region": "lower_wall",
+        "end_region": "upper_wall"
+      },
+      "material": {
+        "id": "reference-viscous-liquid",
+        "density_kg_m3": 1000,
+        "dynamic_viscosity_pa_s": 0.001,
+        "source": {
+          "citation": "CAEKit analytic parallel-plate flow fixture",
+          "usage_terms": "Synthetic reference input covered by the CAEKit project license"
+        }
+      },
+      "walls": [
+        {
+          "region": "lower_wall",
+          "condition": "no_slip"
+        },
+        {
+          "region": "upper_wall",
+          "condition": "no_slip"
+        }
+      ],
+      "drive": {
+        "kind": "volume_flow",
+        "inlet_region": "inlet",
+        "rate_m3_s": 1e-05,
+        "outlet": {
+          "region": "outlet",
+          "pressure": {
+            "reference": "gauge",
+            "value_pa": 0,
+            "reference_absolute_pa": 101325
+          }
+        }
+      }
+    },
+    "wall": {
+      "identity": {
+        "id": "heated-wall",
+        "revision": "1"
+      },
+      "thickness_m": 0.004,
+      "material": {
+        "id": "reference-conductive-solid",
+        "thermal_conductivity_w_m_k": 15,
+        "source": {
+          "citation": "CAEKit analytic cooling channel fixture",
+          "usage_terms": "Synthetic reference input covered by the CAEKit project license"
+        }
+      },
+      "axial_mesh": {
+        "vertices_m": [
+          0.0,
+          0.06451612903,
+          0.12903225806,
+          0.1935483871,
+          0.25806451613,
+          0.32258064516,
+          0.38709677419,
+          0.45161290323,
+          0.51612903226,
+          0.58064516129,
+          0.64516129032,
+          0.70967741935,
+          0.77419354839,
+          0.83870967742,
+          0.90322580645,
+          0.96774193548,
+          1.03225806452,
+          1.09677419355,
+          1.16129032258,
+          1.22580645161,
+          1.29032258065,
+          1.35483870968,
+          1.41935483871,
+          1.48387096774,
+          1.54838709677,
+          1.61290322581,
+          1.67741935484,
+          1.74193548387,
+          1.8064516129,
+          1.87096774194,
+          1.93548387097,
+          2.0
+        ],
+        "start_region": "wall_start",
+        "end_region": "wall_end"
+      },
+      "thickness_mesh": {
+        "vertices_m": [
+          0,
+          0.001,
+          0.0025,
+          0.004
+        ],
+        "start_region": "hot_face",
+        "end_region": "wetted_face"
+      },
+      "hot_boundary": {
+        "region": "hot_face",
+        "temperature_k": 360
+      }
+    },
+    "coolant": {
+      "specific_heat_j_kg_k": 4180,
+      "source": {
+        "citation": "CAEKit analytic cooling channel fixture",
+        "usage_terms": "Synthetic reference input covered by the CAEKit project license"
+      },
+      "axial_mesh": {
+        "vertices_m": [
+          0.0,
+          0.04166666667,
+          0.08333333333,
+          0.125,
+          0.16666666667,
+          0.20833333333,
+          0.25,
+          0.29166666667,
+          0.33333333333,
+          0.375,
+          0.41666666667,
+          0.45833333333,
+          0.5,
+          0.54166666667,
+          0.58333333333,
+          0.625,
+          0.66666666667,
+          0.70833333333,
+          0.75,
+          0.79166666667,
+          0.83333333333,
+          0.875,
+          0.91666666667,
+          0.95833333333,
+          1.0,
+          1.04166666667,
+          1.08333333333,
+          1.125,
+          1.16666666667,
+          1.20833333333,
+          1.25,
+          1.29166666667,
+          1.33333333333,
+          1.375,
+          1.41666666667,
+          1.45833333333,
+          1.5,
+          1.54166666667,
+          1.58333333333,
+          1.625,
+          1.66666666667,
+          1.70833333333,
+          1.75,
+          1.79166666667,
+          1.83333333333,
+          1.875,
+          1.91666666667,
+          1.95833333333,
+          2.0
+        ],
+        "start_region": "inlet",
+        "end_region": "outlet"
+      },
+      "inlet": {
+        "region": "inlet",
+        "temperature_k": 298
+      }
+    },
+    "interface": {
+      "solid_region": "wetted_face",
+      "fluid_region": "lower_wall",
+      "heat_transfer_coefficient_w_m2_k": 400
+    }
+  },
+  "outputs": [
+    "pressure_loss",
+    "mass_flow_rate",
+    "fluid_bulk_temperature",
+    "wall_temperature",
+    "outlet_temperature",
+    "heat_transfer_rate",
+    "interface_heat_flux"
+  ]
+}

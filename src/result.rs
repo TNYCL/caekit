@@ -21,6 +21,11 @@ pub enum Output {
     AbsolutePressure,
     ChannelReynolds,
     WallDrag,
+    FluidBulkTemperature,
+    WallTemperature,
+    OutletTemperature,
+    HeatTransferRate,
+    InterfaceHeatFlux,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +33,8 @@ pub enum Output {
 pub enum SampleLocation {
     Node,
     Cell,
+    InterfaceFace,
+    Sample,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
