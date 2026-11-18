@@ -1,41 +1,130 @@
 name: Verify CAEKit
 
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   native:
-    name: Native tests (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    name: Native tests (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable]
         include:
-          - os: ubuntu-latest
-            rust: "1.85.0"
+          - platform: Linux
+            os: ubuntu-latest
+          - platform: macOS
+            os: macos-latest
+          - platform: Windows
+            os: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: rustup toolchain install ${{ matrix.rust }} --profile minimal
-      - run: cargo +${{ matrix.rust }} test --workspace --locked
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Test the workspace and native CLI
+        run: cargo +stable test --workspace --locked
 
-  checks:
+  msrv:
+    name: Rust MSRV
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test with the declared minimum Rust version
+        shell: bash
+        run: |
+          rust_version=$(cargo +stable metadata --no-deps --format-version 1 --locked |
+            jq -er '.packages[] | select(.name == "caekit") | .rust_version |
+              if test("^[0-9]+\\.[0-9]+$") then . + ".0" else . end')
+          rustup toolchain install "$rust_version" --profile minimal
+          cargo "+$rust_version" test --workspace --locked
+
+  rustfmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --component rustfmt
+      - run: cargo +stable fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --component clippy
+      - run: cargo +stable clippy --workspace --all-targets --locked -- -D warnings
+
+  wasm-library:
+    name: WebAssembly library (wasm32-unknown-unknown)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+      - run: cargo +stable build --lib -p caekit --target wasm32-unknown-unknown --release --locked
+
+  wasi:
+    name: WASI tests and reference cases
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       CARGO_TARGET_WASM32_WASIP1_RUNNER: node ${{ github.workspace }}/scripts/run-wasi.mjs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy --target wasm32-wasip1,wasm32-unknown-unknown
-      - run: cargo +stable fmt --all -- --check
-      - run: cargo +stable clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo +stable build --lib -p caekit --target wasm32-unknown-unknown --release --locked
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: rustup toolchain install stable --profile minimal --target wasm32-wasip1
       - name: Run reference physics and numerical tests in WebAssembly
         run: cargo +stable test --workspace --exclude caekit-cli --target wasm32-wasip1 --locked --tests
-      - name: Run the WebAssembly CLI on the saved models
+      - name: Build native and WASI CLIs
         run: |
-          for model in examples/*.json; do
-            cargo +stable run -p caekit-cli --target wasm32-wasip1 --locked -- run "$model" > /dev/null
-          done
+          cargo +stable build --locked -p caekit-cli
+          cargo +stable build --locked -p caekit-cli --target wasm32-wasip1
+      - name: Compare native and WASI CLI physics on the saved models
+        run: node scripts/verify-reference-cases.mjs target/debug/caekit target/wasm32-wasip1/debug/caekit.wasm
+
+  required:
+    name: Required CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    needs: [native, msrv, rustfmt, clippy, wasm-library, wasi]
+    if: ${{ always() }}
+    steps:
+      - name: Require every verification job to succeed
+        shell: bash
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$RESULTS"
+          if ! jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$RESULTS" > /dev/null; then
+            echo "::error::Every required verification job must succeed."
+            exit 1
+          fi

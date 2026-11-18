@@ -12,7 +12,6 @@ cargo run --locked -- run examples/axial_bar.json
 cargo run --locked -- run examples/laminar_channel.json
 cargo run --locked -- run examples/cooling_channel.json
 cargo run --locked -- run examples/elastic_solid.json
-cargo test --locked
 ```
 
 The [axial bar](docs/physics/axial-bar.md) example returns a 0.05 mm extension
@@ -53,23 +52,55 @@ package name. The workspace selects the API and CLI packages by default at
 the repository root. [Cargo workspace reference](https://doc.rust-lang.org/cargo/reference/workspaces.html)
 
 ```sh
-cargo test --locked --workspace
 cargo test --locked -p caekit-numerics
 cargo install --locked --path crates/caekit-cli
 ```
 
-## Verify WebAssembly results
+## Reproduce CI locally
 
-The physics and numerical integration tests also run as WebAssembly programs
-under Node.js with WASI Preview 1. These commands were checked with Node.js 24
-and run from the repository root.
+**Verify CAEKit** runs on pull requests and pushes to `master`. Native tests
+run the entire workspace, including doctests and the CLI, on Linux, macOS and
+Windows with stable Rust. The Linux MSRV job reads the minimum Rust version
+from `Cargo.toml`, currently **1.85.0**. For branch protection, select the
+**Required CI** status check, which requires every verification job to succeed.
+
+From the repository root, use `rustup` to run the native checks. The last two
+commands reproduce the separate Rustfmt and Clippy jobs.
 
 ```sh
-rustup target add wasm32-wasip1
-export CARGO_TARGET_WASM32_WASIP1_RUNNER="node $PWD/scripts/run-wasi.mjs"
-cargo test --workspace --exclude caekit-cli --target wasm32-wasip1 --locked --tests
-cargo run -p caekit-cli --target wasm32-wasip1 --locked -- run examples/elastic_solid.json
+rustup toolchain install stable --profile minimal --component rustfmt,clippy
+rustup toolchain install 1.85.0 --profile minimal
+cargo +stable test --workspace --locked
+cargo +1.85.0 test --workspace --locked
+cargo +stable fmt --all -- --check
+cargo +stable clippy --workspace --all-targets --locked -- -D warnings
 ```
+
+### WebAssembly
+
+CI compiles the public library for `wasm32-unknown-unknown` and runs the
+physics and numerical tests for `wasm32-wasip1` under **Node.js 24.x** with
+WASI Preview 1. The WASI job launches the compiled CLI on all four saved
+models. The native workspace job covers the CLI tests that spawn subprocesses.
+
+Use these commands from the repository root in a Linux shell with Node.js 24.x
+on `PATH`.
+
+```sh
+rustup target add --toolchain stable wasm32-unknown-unknown wasm32-wasip1
+cargo +stable build --lib -p caekit --target wasm32-unknown-unknown --release --locked
+export CARGO_TARGET_WASM32_WASIP1_RUNNER="node $PWD/scripts/run-wasi.mjs"
+cargo +stable test --workspace --exclude caekit-cli --target wasm32-wasip1 --locked --tests
+cargo +stable build --locked -p caekit-cli
+cargo +stable build --locked -p caekit-cli --target wasm32-wasip1
+node scripts/verify-reference-cases.mjs target/debug/caekit target/wasm32-wasip1/debug/caekit.wasm
+```
+
+The reference check reports CLI exit errors and verifies convergence, the
+analytical benchmarks, model identity, requested outputs, units and sample
+positions. Numeric comparisons use a unit-specific absolute tolerance near
+zero and a relative tolerance of `1e-10` at larger magnitudes. Failed
+comparisons identify the model, quantity, expected value and measured value.
 
 ## License
 
