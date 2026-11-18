@@ -1,0 +1,20 @@
+[package]
+name = "caekit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Multiphysics engineering simulation"
+readme = "../../README.md"
+
+[dependencies]
+caekit-fluids.workspace = true
+caekit-mechanics.workspace = true
+caekit-mesh.workspace = true
+caekit-thermal.workspace = true
+caekit-types.workspace = true
+caekit-numerics.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

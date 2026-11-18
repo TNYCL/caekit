@@ -4,7 +4,7 @@ use caekit::physics::cooling_channel::CoolingChannel;
 use caekit::{Model, Output, Physics, Quantity, StopReason, solve};
 use common::{close, scalar};
 
-const INPUT: &[u8] = include_bytes!("../examples/cooling_channel.json");
+const INPUT: &[u8] = include_bytes!("../../../examples/cooling_channel.json");
 
 fn channel(model: &mut Model) -> &mut CoolingChannel {
     let Physics::CoolingChannel(case) = &mut model.physics else {

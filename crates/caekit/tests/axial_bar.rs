@@ -4,7 +4,7 @@ use caekit::physics::axial_bar::BarBoundary;
 use caekit::{Error, Model, Output, Physics, Quantity, StopReason, solve};
 use common::{close, region};
 
-const INPUT: &[u8] = include_bytes!("../examples/axial_bar.json");
+const INPUT: &[u8] = include_bytes!("../../../examples/axial_bar.json");
 
 #[test]
 fn solves_analytic_tension_case() {

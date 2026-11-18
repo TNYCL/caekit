@@ -17,7 +17,7 @@ use common::{close, region, scalar};
 const EXPANSION: f64 = 12.0e-6 * 50.0;
 
 fn example() -> Model {
-    Model::from_json(include_bytes!("../examples/thermoelastic_solid.json")).unwrap()
+    Model::from_json(include_bytes!("../../../examples/thermoelastic_solid.json")).unwrap()
 }
 
 fn coupled_case(model: &mut Model) -> &mut ThermoelasticSolid {
@@ -437,7 +437,8 @@ fn pressure_and_body_force_add_to_thermal_expansion() {
 
 #[test]
 fn zero_expansion_or_reference_temperature_recovers_legacy_mechanics() {
-    let mut elastic = Model::from_json(include_bytes!("../examples/elastic_solid.json")).unwrap();
+    let mut elastic =
+        Model::from_json(include_bytes!("../../../examples/elastic_solid.json")).unwrap();
     let Physics::ElasticSolid(case) = &mut elastic.physics else {
         panic!("expected elastic solid");
     };

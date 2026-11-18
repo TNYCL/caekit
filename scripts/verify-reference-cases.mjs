@@ -155,7 +155,7 @@ function referenceBalance(report, name, unit, label) {
   return balance;
 }
 
-// Use the analytical references and acceptance limits in tests/<case>.rs.
+// Use the analytical references and acceptance limits in crates/caekit/tests/<case>.rs.
 const references = {
   axial_bar(report, label) {
     const tip = referenceQuantity(report, "end_displacement", "m", label).values?.tip;

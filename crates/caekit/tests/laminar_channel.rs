@@ -4,7 +4,7 @@ use caekit::physics::laminar_channel::{FlowDrive, LaminarChannel, Pressure, Pres
 use caekit::{Model, Output, Physics, Quantity, StopReason, solve};
 use common::{close, region, scalar};
 
-const INPUT: &[u8] = include_bytes!("../examples/laminar_channel.json");
+const INPUT: &[u8] = include_bytes!("../../../examples/laminar_channel.json");
 
 fn channel(model: &mut Model) -> &mut LaminarChannel {
     let Physics::LaminarChannel(case) = &mut model.physics else {

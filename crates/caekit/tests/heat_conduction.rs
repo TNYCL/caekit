@@ -9,7 +9,7 @@ use block::{TETRA_SAMPLES, interpolate, structured_block};
 use common::{close, region};
 
 fn example() -> Model {
-    Model::from_json(include_bytes!("../examples/heat_conduction.json")).unwrap()
+    Model::from_json(include_bytes!("../../../examples/heat_conduction.json")).unwrap()
 }
 
 fn heat_case(model: &mut Model) -> &mut HeatConduction {

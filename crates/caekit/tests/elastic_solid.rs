@@ -5,7 +5,7 @@ use caekit::physics::laminar_channel::Pressure;
 use caekit::{Model, Output, Physics, Quantity, RunReport, StopReason, solve};
 use common::{close, scalar};
 
-const INPUT: &[u8] = include_bytes!("../examples/elastic_solid.json");
+const INPUT: &[u8] = include_bytes!("../../../examples/elastic_solid.json");
 
 fn elastic(model: &mut Model) -> &mut ElasticSolid {
     let Physics::ElasticSolid(case) = &mut model.physics else {

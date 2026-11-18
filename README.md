@@ -45,7 +45,7 @@ See the [model and result format](docs/model.md) and
 
 ## Cargo workspace
 
-The root `caekit` package exposes the versioned model, physics dispatch,
+The `crates/caekit` package exposes the versioned model, physics dispatch,
 `solve`, and run reports. Its domain solvers depend on shared lower-level
 crates. The command-line package uses the same public Rust API.
 
@@ -59,10 +59,12 @@ crates. The command-line package uses the same public Rust API.
 | `caekit-numerics` | Sparse systems, iterative solves, and convergence histories |
 | `caekit-types` | Shared physical input and result values and diagnostics |
 
-The root cooling case passes mass flow from the fluid solver to the thermal
-solver. The root thermoelastic case passes nodal temperatures from the thermal
+The cooling case passes mass flow from the fluid solver to the thermal
+solver. The thermoelastic case passes nodal temperatures from the thermal
 solver to mechanics. Build domain crates by package name. The workspace
 selects the API and CLI packages by default at the repository root.
+If your project uses a local Cargo path dependency on this checkout, point
+it to `crates/caekit`. The package name and `use caekit::...` imports are the same.
 [Cargo workspace reference](https://doc.rust-lang.org/cargo/reference/workspaces.html)
 
 ```sh
