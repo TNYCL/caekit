@@ -24,3 +24,7 @@
 - The elastic solid example uses a synthetic cuboid patch mesh, constant
   elastic properties and analytical traction and body-load cases under the
   project license.
+- The heat conduction and thermoelastic examples use synthetic tetrahedral
+  blocks, conductivity, elastic constants and expansion properties under
+  the project license. The associated physics pages derive the analytical
+  references from constant-property conduction and isotropic elasticity.

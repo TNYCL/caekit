@@ -40,6 +40,9 @@ give displacement and reaction vectors at vertices, stress tensors and
 von Mises scalars at cell centroids, strain energy and force and moment
 balances. Moments use the first mesh vertex as the reference point.
 
+The same constraints, loads and elastic material are available for
+temperature-driven deformation. [Thermoelasticity](thermoelastic-solid.md)
+
 The reference block is 2 m by 0.5 m by 0.4 m. Its 10 MPa applied traction
 and 200 GPa modulus give 1e-4 m of extension independent of the solver.
 Analytical transverse strains are −0.31 times the axial strain, support

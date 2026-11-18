@@ -12,6 +12,10 @@ cargo run --locked -- run examples/axial_bar.json
 cargo run --locked -- run examples/laminar_channel.json
 cargo run --locked -- run examples/cooling_channel.json
 cargo run --locked -- run examples/elastic_solid.json
+cargo run --locked -- check examples/heat_conduction.json
+cargo run --locked -- run examples/heat_conduction.json
+cargo run --locked -- check examples/thermoelastic_solid.json
+cargo run --locked -- run examples/thermoelastic_solid.json
 ```
 
 The [axial bar](docs/physics/axial-bar.md) example returns a 0.05 mm extension
@@ -27,6 +31,15 @@ reports the outlet temperature and interface and system energy balances. The
 [elastic solid](docs/physics/elastic-solid.md) computes displacements, stress
 tensors and reactions on a three-dimensional tetrahedral mesh.
 
+The steady heat conduction example reports a center temperature of 350 K,
+a heat flux of 20,000 W/m² along +x and boundary heat rates of +200 W and
+−200 W. Positive boundary power enters the solid. [Heat conduction](docs/physics/heat-conduction.md)
+
+The thermoelastic example transfers the computed 350 K field into a
+small-strain mechanical solve on the same tetrahedra. With axial extension
+restrained and lateral expansion free, the heated bar develops −120 MPa
+axial stress and opposing 12 kN support reactions. [Thermoelasticity](docs/physics/thermoelastic-solid.md)
+
 See the [model and result format](docs/model.md) and
 [source and data provenance](docs/provenance.md).
 
@@ -39,17 +52,18 @@ crates. The command-line package uses the same public Rust API.
 | Package | Responsibility |
 | --- | --- |
 | `caekit-cli` | The `caekit` executable, argument handling, and JSON I/O |
-| `caekit-mechanics` | Axial bar and three-dimensional elastic solid solvers |
+| `caekit-mechanics` | Axial bar, three-dimensional elasticity and thermal expansion |
 | `caekit-fluids` | Laminar momentum, mass flow, and pressure recovery |
-| `caekit-thermal` | Wall conduction, bulk energy transport, and interface heat balance |
+| `caekit-thermal` | Tetrahedral solid conduction, wall conduction and coolant energy transport |
 | `caekit-mesh` | Meshes, geometry revisions, regions, and mesh quality |
 | `caekit-numerics` | Sparse systems, iterative solves, and convergence histories |
 | `caekit-types` | Shared physical input and result values and diagnostics |
 
-The root cooling case passes mass flow from the fluid solver into the
-thermal solver and assembles the combined report. Build domain crates by
-package name. The workspace selects the API and CLI packages by default at
-the repository root. [Cargo workspace reference](https://doc.rust-lang.org/cargo/reference/workspaces.html)
+The root cooling case passes mass flow from the fluid solver to the thermal
+solver. The root thermoelastic case passes nodal temperatures from the thermal
+solver to mechanics. Build domain crates by package name. The workspace
+selects the API and CLI packages by default at the repository root.
+[Cargo workspace reference](https://doc.rust-lang.org/cargo/reference/workspaces.html)
 
 ```sh
 cargo test --locked -p caekit-numerics
@@ -80,7 +94,7 @@ cargo +stable clippy --workspace --all-targets --locked -- -D warnings
 
 CI compiles the public library for `wasm32-unknown-unknown` and runs the
 physics and numerical tests for `wasm32-wasip1` under **Node.js 24.x** with
-WASI Preview 1. The WASI job launches the compiled CLI on all four saved
+WASI Preview 1. The WASI job launches the compiled CLI on all six saved
 models. The native workspace job covers the CLI tests that spawn subprocesses.
 
 Use these commands from the repository root in a Linux shell with Node.js 24.x
