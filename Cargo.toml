@@ -10,6 +10,7 @@ members = [
     "crates/caekit-thermal",
     "crates/caekit-types",
     "crates/caekit-wasm",
+    "docs",
 ]
 default-members = ["crates/caekit", "crates/caekit-cli"]
 resolver = "3"

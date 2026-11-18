@@ -54,7 +54,7 @@ balance gives `volumetric_generation`, `exterior_heat_input` and net
 with each sign, so the regional imbalances sum to the global imbalance
 within numerical precision.
 
-```rust
+```rust,no_run
 use caekit::{Model, Output, Quantity, StopReason, solve};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

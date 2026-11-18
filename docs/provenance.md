@@ -11,7 +11,12 @@
   under MIT or Apache-2.0. The locked graph includes the corresponding
   permissive dependencies, including the Unicode-3.0 terms applicable to
   `unicode-ident`. Inspect the exact resolved licenses and upstream
-  repositories with `cargo metadata --locked --format-version 1`.
+  repositories with `cargo metadata --locked --format-version 1`. `deny.toml` lists the
+  licences that CI accepts for the locked graph.
+- The Python package links [PyO3](https://github.com/PyO3/pyo3) and the WebAssembly
+  package links [wasm-bindgen](https://github.com/wasm-bindgen/wasm-bindgen) with its
+  `js-sys` crate, each available under MIT or Apache-2.0. Only the binding crates
+  `caekit-py` and `caekit-wasm` depend on them; the solver crates do not.
 - The axial-bar properties and loads are synthetic inputs specified for the
   analytical fixture. They fall under the project license. The example uses
   a representative constant elastic modulus independent of any measured

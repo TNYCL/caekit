@@ -1,0 +1,22 @@
+# The documentation is a test target: this unpublished package compiles the Rust examples
+# of the Markdown pages as doctests (doctests.rs).
+[package]
+name = "caekit-docs"
+description = "Compiles the Rust examples of the CAEKit documentation as doctests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "doctests.rs"
+doc = false
+
+# The examples run as doctests, which link the development dependencies.
+[dev-dependencies]
+caekit.workspace = true
+
+[lints]
+workspace = true

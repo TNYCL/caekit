@@ -43,6 +43,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "caekit-docs"
+version = "0.1.0"
+dependencies = [
+ "caekit",
+]
+
+[[package]]
 name = "caekit-fluids"
 version = "0.1.0"
 dependencies = [

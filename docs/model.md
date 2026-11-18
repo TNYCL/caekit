@@ -85,3 +85,61 @@ Exit code 2 preserves the convergence report for a nonconverged run. Exit code
 withholds physical fields. An algebraic convergence threshold measures
 iterative error. Engineering error also depends on the physical assumptions,
 geometry, mesh and properties.
+
+## Outputs
+
+A model requests quantities by name in `outputs`. Each physics kind supports the names
+listed for it; any other name, and a repeated name, is an error. The report holds exactly
+the requested quantities under `quantities`. Unit strings are written in ASCII: `m^3/s`,
+`W/m^2`, `N m` and `1` for a dimensionless number.
+
+| Output | Physics kinds | Quantity kind | Unit | Meaning |
+| --- | --- | --- | --- | --- |
+| `axial_displacement` | `axial_bar` | `field` at nodes | m | Displacement along the positive local axis, in vertex order |
+| `axial_stress` | `axial_bar` | `field` at cells | Pa | Element stress `E (u_right − u_left)/h`, tension positive |
+| `end_displacement` | `axial_bar` | `by_region` | m | Axial displacement of the two ends, keyed by the mesh's end region names |
+| `reaction_force` | `axial_bar` | `by_region` | N | Force that the support exerts on the bar, positive along the local axis, for each end with a prescribed displacement |
+| `axial_velocity` | `laminar_channel`, `cooling_channel` | `field` at cells | m/s | Axial velocity at the transverse cell centres, positioned at mid-length |
+| `volume_flow_rate` | `laminar_channel`, `cooling_channel` | `scalar` | m^3/s | Volume flow from the inlet to the outlet |
+| `mass_flow_rate` | `laminar_channel`, `cooling_channel` | `scalar` | kg/s | Density times the volume flow rate |
+| `pressure_loss` | `laminar_channel`, `cooling_channel` | `scalar` | Pa | Inlet pressure minus outlet pressure |
+| `absolute_pressure` | `laminar_channel`, `cooling_channel` | `by_region` | Pa | Absolute pressure at the inlet and outlet regions |
+| `channel_reynolds` | `laminar_channel`, `cooling_channel` | `scalar` | 1 | Reynolds number from the mean velocity and the hydraulic diameter of twice the gap |
+| `wall_drag` | `laminar_channel`, `cooling_channel` | `by_region` | N | Viscous axial force that each plate exerts on the fluid, negative when it opposes the flow |
+| `fluid_bulk_temperature` | `cooling_channel` | `field` at cells | K | Coolant bulk temperature at the cell centres of the coolant mesh |
+| `wall_temperature` | `cooling_channel` | `field` at samples | K | Wall temperature for each axial wall panel, one value per vertex of the through-thickness mesh, starting at the hot face |
+| `outlet_temperature` | `cooling_channel` | `scalar` | K | Coolant bulk temperature in the last cell of the coolant mesh |
+| `heat_transfer_rate` | `cooling_channel` | `scalar` | W | Total heat rate from the wall to the coolant, positive when the coolant is heated |
+| `interface_heat_flux` | `cooling_channel` | `field` at interface faces | W/m^2 | Heat flux leaving the wall towards the coolant on each axial wall panel, positive when the coolant is heated |
+| `displacement_vector` | `elastic_solid`, `thermoelastic_solid` | `vector_field` at nodes | m | Global displacement components, in vertex order |
+| `cauchy_stress` | `elastic_solid`, `thermoelastic_solid` | `tensor_field` at cells | Pa | Cauchy stress at the tetrahedron centroids, tension positive |
+| `von_mises_stress` | `elastic_solid`, `thermoelastic_solid` | `field` at cells | Pa | Von Mises equivalent stress at the tetrahedron centroids |
+| `nodal_reaction` | `elastic_solid`, `thermoelastic_solid` | `vector_field` at nodes | N | Support reaction acting on the solid, zero on unconstrained components |
+| `elastic_energy` | `elastic_solid`, `thermoelastic_solid` | `scalar` | J | Elastic strain energy integrated over the solid |
+| `solid_temperature` | `heat_conduction`, `multimaterial_heat_conduction`, `thermoelastic_solid` | `field` at nodes | K | Absolute temperature, in vertex order |
+| `solid_heat_flux` | `heat_conduction`, `multimaterial_heat_conduction`, `thermoelastic_solid` | `vector_field` at cells | W/m^2 | Heat flux `q = −k∇T` at the tetrahedron centroids |
+| `boundary_heat_rate` | `heat_conduction`, `multimaterial_heat_conduction`, `thermoelastic_solid` | `by_region` | W | Integrated heat rate through each named exterior region, positive into the solid |
+| `interface_heat_rate` | `multimaterial_heat_conduction` | `by_interface` | W | Integrated heat rate across the shared faces of each pair of volume regions, positive from `from_region` to `to_region` |
+
+A `field`, `vector_field` or `tensor_field` lists `positions_m` in the global frame next
+to `values`, in the same order. A `by_region` quantity maps region names to values.
+
+## Numerical stages
+
+Each entry of `convergence` is one numerical stage. The run's `stop_reason` is that of
+the first stage that did not converge.
+
+| Stage | Physics kinds | Residual unit | Algorithm | Settings |
+| --- | --- | --- | --- | --- |
+| `elastic_equilibrium` | `axial_bar` | N | `jacobi_preconditioned_conjugate_gradient` | `linear_solver` |
+| `axial_momentum` | `laminar_channel`, `cooling_channel` with a pressure drive | Pa | `jacobi_preconditioned_conjugate_gradient` | `linear_solver` |
+| `unit_gradient_axial_momentum` | `laminar_channel`, `cooling_channel` with a volume-flow drive | Pa | `jacobi_preconditioned_conjugate_gradient` | `linear_solver` |
+| `coupled_wall_coolant_energy` | `cooling_channel` | W | `partitioned_gauss_seidel` | `physics.coupling_solver` |
+| `solid_elastic_equilibrium` | `elastic_solid`, `thermoelastic_solid` | N | `jacobi_preconditioned_conjugate_gradient` | `linear_solver` |
+| `solid_heat_conduction` | `heat_conduction`, `multimaterial_heat_conduction`, `thermoelastic_solid` | W | `jacobi_preconditioned_conjugate_gradient` | `linear_solver`; `physics.thermal_solver` in `thermoelastic_solid` |
+| `solid_interface_equilibration` | `multimaterial_heat_conduction` | W | `jacobi_preconditioned_conjugate_gradient` | `linear_solver` |
+
+The absolute residual tolerance of a stage is in its residual unit. The optional
+`physics.coupling_solver` of the cooling channel takes `relative_residual_tolerance`,
+`absolute_residual_tolerance_w` and `max_iterations` and defaults to 1e-10, 1e-10 W and
+1,000 sweeps.

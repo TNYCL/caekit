@@ -2,6 +2,7 @@
 
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -105,3 +106,29 @@ def test_nonconverged_run_is_reported_not_raised():
     assert report["convergence"][0]["iterations"] == 1
     assert report["quantities"] == {}
     assert report["balances"] == []
+
+
+def documentation_examples():
+    """Every `python` block of the repository README, of docs/ and of the package README."""
+    pages = [REPO / "README.md", REPO / "crates" / "caekit-py" / "README.md"]
+    pages += sorted((REPO / "docs").rglob("*.md"))
+    examples = []
+    for page in pages:
+        text = page.read_text(encoding="utf-8")
+        for index, match in enumerate(re.finditer(r"^```python\n(.*?)^```", text, re.M | re.S), 1):
+            name = f"{page.relative_to(REPO).as_posix()}#{index}"
+            examples.append(pytest.param(name, match.group(1), id=name))
+    return examples
+
+
+def test_documentation_has_python_examples():
+    names = {example.values[0].split("#")[0] for example in documentation_examples()}
+    assert {"README.md", "docs/python.md", "crates/caekit-py/README.md"} <= names
+
+
+@pytest.mark.parametrize(("name", "source"), documentation_examples())
+def test_documentation_example_runs(name, source, monkeypatch, capsys):
+    # The examples are written to run from the repository root.
+    monkeypatch.chdir(REPO)
+    exec(compile(source, name, "exec"), {"__name__": "__main__"})
+    assert capsys.readouterr().out, f"{name} prints its result"

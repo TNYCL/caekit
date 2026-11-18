@@ -14,7 +14,7 @@ cargo test --locked --test thermoelastic_solid -- --nocapture
 
 The Rust API uses the same versioned input and report as the CLI.
 
-```rust
+```rust,no_run
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json = std::fs::read("examples/thermoelastic_solid.json")?;
     let model = caekit::Model::from_json(&json)?;
