@@ -11,8 +11,9 @@ remains laminar and the width and developed length justify the approximation.
 Specify upstream and downstream pressure, or the inlet volumetric flow and
 outlet pressure. Absolute pressure uses pascals. A gauge reading also requires
 its reference absolute pressure. The reported port pressures are absolute.
-Pressure loss uses the difference of the readings where the gauge reference
-is shared. The axial direction points from the inlet to the outlet. A solved
+Pressure loss preserves small differences between readings even when the
+absolute port pressures round to the same binary64 value. The axial
+direction points from the inlet to the outlet. A solved
 case has positive flow in this direction.
 
 For gap `H` and length `L`, the transverse momentum equation is

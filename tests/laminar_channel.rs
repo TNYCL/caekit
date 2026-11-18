@@ -105,6 +105,34 @@ fn pressure_drive_checks_parabolic_profile_and_gauge_reference() {
 }
 
 #[test]
+fn mixed_pressure_references_preserve_a_small_driving_gradient() {
+    let mut model = Model::from_json(INPUT).unwrap();
+    let case = channel(&mut model);
+    case.drive = FlowDrive::Pressure {
+        inlet: PressureAtPort {
+            region: "inlet".into(),
+            pressure: Pressure::Gauge {
+                value_pa: 1e-12,
+                reference_absolute_pa: 101325.0,
+            },
+        },
+        outlet: PressureAtPort {
+            region: "outlet".into(),
+            pressure: Pressure::Absolute { value_pa: 101325.0 },
+        },
+    };
+    let report = solve(&model).unwrap();
+    assert_eq!(report.stop_reason, StopReason::Converged);
+    close(scalar(&report, Output::PressureLoss), 1e-12, 1e-26);
+    let exact_flow = 1e-12 * 0.1 * 0.01_f64.powi(3) / (12.0 * 1e-3 * 2.0);
+    close(
+        scalar(&report, Output::VolumeFlowRate),
+        exact_flow,
+        exact_flow * 0.003,
+    );
+}
+
+#[test]
 fn pressure_reference_and_wall_assignments_are_checked() {
     let mut model = Model::from_json(INPUT).unwrap();
     let case = channel(&mut model);
