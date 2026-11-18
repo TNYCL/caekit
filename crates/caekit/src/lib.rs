@@ -35,6 +35,10 @@ pub fn solve(model: &Model) -> Result<RunReport, Error> {
             let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
             (vec![mesh], solution)
         }
+        Physics::MultimaterialHeatConduction(case) => {
+            let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
+            (vec![mesh], solution)
+        }
         Physics::ThermoelasticSolid(case) => {
             let (mesh, solution) = case.solve(model.linear_solver, &model.outputs)?;
             (vec![mesh], solution)
