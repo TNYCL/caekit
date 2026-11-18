@@ -357,12 +357,19 @@ impl PreparedElasticSolid<'_> {
     ) -> Result<Solution<Convergence>, Error> {
         expansion.validate()?;
         positive("solid temperature datum", datum_k)?;
-        if offsets_k.len() != self.mesh.vertices_m.len()
-            || !offsets_k.iter().all(|offset| offset.is_finite())
-        {
+        if offsets_k.len() != self.mesh.vertices_m.len() {
             return Err(Error::invalid(
                 "solid temperature field",
                 "requires one finite temperature offset per mesh vertex",
+            ));
+        }
+        if let Some(node) = offsets_k.iter().position(|offset| {
+            let temperature = datum_k + offset;
+            !temperature.is_finite() || temperature <= 0.0
+        }) {
+            return Err(Error::invalid(
+                format!("solid temperature at vertex {node}"),
+                "absolute temperature must be positive and finite",
             ));
         }
         if expansion.linear_expansion_coefficient_per_k == 0.0 {

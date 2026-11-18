@@ -96,6 +96,32 @@ fn assert_converged(report: &RunReport) {
 }
 
 #[test]
+fn direct_mechanics_api_checks_absolute_temperature_before_any_shortcut() {
+    let mut model = example();
+    let case = coupled_case(&mut model);
+    let checked = case.mesh.checked("mesh").unwrap();
+    let solid = case.mechanical.prepare(&checked).unwrap();
+    for alpha in [case.expansion.linear_expansion_coefficient_per_k, 0.0] {
+        let mut expansion = case.expansion;
+        expansion.linear_expansion_coefficient_per_k = alpha;
+        for (datum, offset) in [
+            (300.0, -301.0),
+            (300.0, -300.0),
+            (f64::MAX, f64::MAX),
+            (300.0, f64::NAN),
+        ] {
+            let mut offsets = vec![0.0; case.mesh.vertices_m.len()];
+            offsets[2] = offset;
+            let err = solid
+                .solve_thermoelastic(Default::default(), &[], expansion, datum, &offsets)
+                .err()
+                .expect("invalid absolute temperature must fail");
+            assert!(err.to_string().contains("vertex 2"));
+        }
+    }
+}
+
+#[test]
 fn free_expansion_uses_a_temperature_field_even_without_thermal_outputs() {
     let mut model = example();
     coupled_case(&mut model)
