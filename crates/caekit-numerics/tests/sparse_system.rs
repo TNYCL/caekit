@@ -40,6 +40,26 @@ fn eliminates_prescribed_degrees_of_freedom_and_recovers_the_full_vector() {
 }
 
 #[test]
+fn unattainable_true_residual_stops_after_repeated_roundoff_limited_corrections() {
+    // The two adjacent binary64 values bracketing 29/7 both give a nonzero residual.
+    let mut system = SparseAssembly::new(1);
+    system.add(0, 0, 7.0);
+    let settings = LinearSettings {
+        relative_residual_tolerance: 1e-20,
+        ..Default::default()
+    };
+    let (x, trace) = system.solve(&[29.0], settings, "test", "W");
+    assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    assert!(trace.iterations < settings.max_iterations);
+    assert_eq!(
+        trace.final_true_residual_l2,
+        Some((29.0 - 7.0 * x[0]).abs())
+    );
+    assert!(trace.final_true_residual_l2.unwrap() > trace.residual_threshold.unwrap());
+    assert!(trace.diagnostic.unwrap().contains("stagnated"));
+}
+
+#[test]
 fn distinguishes_an_iteration_limit_from_a_numerical_breakdown() {
     let one_iteration = LinearSettings {
         max_iterations: 1,

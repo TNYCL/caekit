@@ -79,6 +79,8 @@ pub struct Convergence {
     pub residual_threshold: Option<f64>,
     pub residual_l2_history: Vec<f64>,
     pub final_true_residual_l2: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
 }
 
 /// Sparse triplet accumulation with deterministic row and column ordering.
@@ -120,6 +122,7 @@ impl SparseAssembly {
             residual_threshold: None,
             residual_l2_history: Vec::new(),
             final_true_residual_l2: None,
+            diagnostic: None,
         };
         if self.invalid || rhs.len() != self.rows.len() || settings.validate().is_err() {
             return (vec![0.0; self.rows.len()], stats);
@@ -165,6 +168,18 @@ impl CsrMatrix {
                 .map(|i| self.entries[i] * x[self.columns[i]])
                 .sum();
         }
+    }
+
+    /// Conservative binary64 rounding scale for computing b - A*x row by row.
+    fn residual_roundoff_l2(&self, x: &[f64], rhs: &[f64]) -> f64 {
+        rhs.iter().enumerate().fold(0.0_f64, |bound, (row, b)| {
+            let indices = self.offsets[row]..self.offsets[row + 1];
+            let operations = 2.0 * indices.len() as f64 + 1.0;
+            let scale = indices.fold(b.abs(), |sum, i| {
+                sum + (self.entries[i] * x[self.columns[i]]).abs()
+            });
+            bound.hypot(operations * f64::EPSILON * scale)
+        })
     }
 }
 
@@ -215,6 +230,8 @@ fn pcg(
     let mut direction = preconditioned.clone();
     let mut residual_dot = dot(&residual, &preconditioned);
     let mut product = vec![0.0; rhs.len()];
+    let mut restart_baseline = f64::INFINITY;
+    let mut unproductive_restarts = 0;
 
     for iteration in 1..=settings.max_iterations {
         matrix.multiply(&direction, &mut product);
@@ -253,6 +270,27 @@ fn pcg(
                 stats.stop_reason = StopReason::Converged;
                 stats.final_true_residual_l2 = Some(actual);
                 return (x, stats);
+            }
+            if !actual.is_finite() {
+                break;
+            }
+            // Count complete correction attempts only after verifying the true residual.
+            if actual < 0.75 * restart_baseline {
+                restart_baseline = actual;
+                unproductive_restarts = 0;
+            } else {
+                unproductive_restarts += 1;
+                if unproductive_restarts >= 8 {
+                    let roundoff = matrix.residual_roundoff_l2(&x, rhs);
+                    if roundoff.is_finite() && actual <= roundoff {
+                        stats.final_true_residual_l2 = Some(actual);
+                        stats.diagnostic = Some(format!(
+                            "True residual stagnated at {actual:.6e} {} above the requested threshold {threshold:.6e} {} after repeated corrections at binary64 precision.",
+                            stats.residual_unit, stats.residual_unit
+                        ));
+                        return (x, stats);
+                    }
+                }
             }
         }
         for i in 0..rhs.len() {

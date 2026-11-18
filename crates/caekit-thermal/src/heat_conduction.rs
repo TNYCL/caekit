@@ -204,12 +204,21 @@ impl SolidThermal {
                 }
             }
         }
-        let datum_k = fixed_datum.or(ambient_datum).ok_or_else(|| {
-            Error::invalid(
-                "physics.thermal.boundary_conditions",
-                "a prescribed temperature or positive convection is required to determine absolute temperature",
-            )
-        })?;
+        let datum_k = match (fixed_datum, ambient_datum) {
+            (Some(k), _) => k,
+            (None, Some(ambient)) => convection_datum(
+                ambient,
+                self.volumetric_heat_source_w_m3,
+                topology,
+                &conditions,
+            ),
+            (None, None) => {
+                return Err(Error::invalid(
+                    "physics.thermal.boundary_conditions",
+                    "a prescribed temperature or positive convection is required to determine absolute temperature",
+                ));
+            }
+        };
         Ok(PreparedConduction {
             mesh,
             topology,
@@ -501,6 +510,50 @@ impl PreparedConduction<'_> {
 fn film_weight(area: f64, coefficient: f64) -> f64 {
     // On a linear triangle, the consistent surface mass diagonal is twice the off-diagonal.
     (area / 12.0) * coefficient
+}
+
+// With no fixed-temperature boundary, energy conservation determines the
+// h-weighted mean surface temperature. Remove this constant mode before PCG.
+fn convection_datum(
+    ambient: f64,
+    source: f64,
+    topology: &TetraTopology<'_>,
+    conditions: &BTreeMap<&str, &ThermalBoundary>,
+) -> f64 {
+    let mut heat: f64 = topology
+        .elements
+        .iter()
+        .map(|tet| source * tet.volume)
+        .sum();
+    let mut conductance = 0.0;
+    for (&region, &condition) in conditions {
+        for face in &topology.boundaries[region] {
+            match *condition {
+                ThermalBoundary::HeatFlux {
+                    inward_heat_flux_w_m2,
+                    ..
+                } => {
+                    heat += face.area * inward_heat_flux_w_m2;
+                }
+                ThermalBoundary::Convection {
+                    film_coefficient_w_m2_k,
+                    ambient_temperature_k,
+                    ..
+                } => {
+                    let h_area = face.area * film_coefficient_w_m2_k;
+                    conductance += h_area;
+                    heat += h_area * (ambient_temperature_k - ambient);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mean = ambient + heat / conductance;
+    if conductance.is_finite() && mean.is_finite() && mean > 0.0 {
+        mean
+    } else {
+        ambient
+    }
 }
 
 fn heat_flux(tet: &Tet, k: f64, offsets: [f64; 4]) -> [f64; 3] {

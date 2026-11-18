@@ -47,7 +47,10 @@ tetrahedron. The weak form adds `∫ h T N_i dA` on the left and
 linear triangle mass matrix with its off-diagonal terms and splits a
 constant cell source among the four vertices. Conjugate gradient solves
 the sparse system after symmetric elimination of prescribed temperatures.
-The solved unknowns are offsets from a prescribed or ambient temperature.
+The solved unknowns are offsets from a prescribed temperature. When convection
+provides the only temperature reference, the solver instead uses the film-
+conductance-weighted mean surface temperature implied by the global heat balance.
+This keeps the small internal gradients resolvable under weak convection.
 [MFEM boundary-condition formulation](https://mfem.org/fem_bc/)
 
 ## Read the report

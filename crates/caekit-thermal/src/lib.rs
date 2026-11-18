@@ -302,6 +302,7 @@ impl EnergySystem {
             residual_threshold: None,
             residual_l2_history: Vec::new(),
             final_true_residual_l2: None,
+            diagnostic: None,
         };
         let initial = self.residual(&state, &mut residual);
         if !initial.is_finite() {

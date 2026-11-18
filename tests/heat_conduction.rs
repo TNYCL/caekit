@@ -126,6 +126,38 @@ fn prescribed_flux_and_convection_set_the_temperature_without_dirichlet() {
 }
 
 #[test]
+fn weak_convection_resolves_the_mean_temperature_and_small_gradient() {
+    let mut model = example();
+    let thermal = &mut heat_case(&mut model).thermal;
+    thermal.material.thermal_conductivity_w_m_k = 400.0;
+    thermal.boundary_conditions = vec![
+        ThermalBoundary::HeatFlux {
+            region: "x0".into(),
+            inward_heat_flux_w_m2: 0.1,
+        },
+        ThermalBoundary::Convection {
+            region: "x1".into(),
+            ambient_temperature_k: 300.0,
+            film_coefficient_w_m2_k: 0.01,
+        },
+    ];
+    let report = solve(&model).unwrap();
+    assert_eq!(report.stop_reason, StopReason::Converged);
+    let (nodes, values) = temperatures(&report);
+    for (&[x, _, _], &value) in nodes.iter().zip(values) {
+        close(value, 310.0 + (0.1 - x) * 0.1 / 400.0, 1e-9);
+    }
+    for flux in fluxes(&report).1 {
+        close(flux[0], 0.1, 1e-9);
+    }
+    close(
+        region(&report, Output::BoundaryHeatRate, "x1"),
+        -0.001,
+        1e-12,
+    );
+}
+
+#[test]
 fn shared_prescribed_nodes_contribute_once_to_the_energy_balance() {
     let mut model = example();
     let case = heat_case(&mut model);

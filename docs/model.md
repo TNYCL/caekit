@@ -37,6 +37,11 @@ in the solved equation's residual units. A run reports this threshold and an
 independently recomputed final residual `||b − Ax||₂`. History entries during
 conjugate gradient are recursive residual estimates.
 
+If repeated correction attempts stagnate above the requested tolerance within
+the binary64 rounding scale of the residual evaluation, the stage stops with
+`numerical_breakdown`. Its optional `diagnostic` explains the failure and
+the trace retains the measured true residual and requested threshold.
+
 In `heat_conduction`, the top-level `linear_solver` uses W for the absolute
 tolerance. In `thermoelastic_solid`, `linear_solver` uses N and
 `physics.thermal_solver` uses W. Each stage reports its own threshold,
