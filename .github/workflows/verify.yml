@@ -1,0 +1,41 @@
+name: Verify CAEKit
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native tests (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            rust: "1.85.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install ${{ matrix.rust }} --profile minimal
+      - run: cargo +${{ matrix.rust }} test --workspace --locked
+
+  checks:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: node ${{ github.workspace }}/scripts/run-wasi.mjs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy --target wasm32-wasip1,wasm32-unknown-unknown
+      - run: cargo +stable fmt --all -- --check
+      - run: cargo +stable clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo +stable build --lib -p caekit --target wasm32-unknown-unknown --release --locked
+      - name: Run reference physics and numerical tests in WebAssembly
+        run: cargo +stable test --workspace --exclude caekit-cli --target wasm32-wasip1 --locked --tests
+      - name: Run the WebAssembly CLI on the saved models
+        run: |
+          for model in examples/*.json; do
+            cargo +stable run -p caekit-cli --target wasm32-wasip1 --locked -- run "$model" > /dev/null
+          done

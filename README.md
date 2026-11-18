@@ -58,6 +58,19 @@ cargo test --locked -p caekit-numerics
 cargo install --locked --path crates/caekit-cli
 ```
 
+## Verify WebAssembly results
+
+The physics and numerical integration tests also run as WebAssembly programs
+under Node.js with WASI Preview 1. These commands were checked with Node.js 24
+and run from the repository root.
+
+```sh
+rustup target add wasm32-wasip1
+export CARGO_TARGET_WASM32_WASIP1_RUNNER="node $PWD/scripts/run-wasi.mjs"
+cargo test --workspace --exclude caekit-cli --target wasm32-wasip1 --locked --tests
+cargo run -p caekit-cli --target wasm32-wasip1 --locked -- run examples/elastic_solid.json
+```
+
 ## License
 
 Choose either the [MIT license](LICENSE-MIT) or the
