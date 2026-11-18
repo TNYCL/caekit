@@ -31,17 +31,18 @@ pub(super) struct CellProperties {
     pub generation: f64,
 }
 
-pub(super) enum CellMaterials {
+pub(super) enum CellMaterials<'a> {
     Uniform(CellProperties),
-    ByRegion(RegionMaterials),
+    ByRegion(RegionMaterials<'a>),
 }
 
-pub(super) struct RegionMaterials {
+pub(super) struct RegionMaterials<'a> {
+    pub regions: &'a [ThermalVolumeRegion],
     pub properties: Vec<CellProperties>,
     pub cell_regions: Vec<usize>,
 }
 
-impl CellMaterials {
+impl CellMaterials<'_> {
     pub fn at(&self, cell: usize) -> CellProperties {
         match self {
             Self::Uniform(properties) => *properties,
@@ -60,7 +61,7 @@ pub(super) fn validate_material(path: &str, material: &ConductiveMaterial) -> Re
 }
 
 impl MultimaterialThermal {
-    pub(super) fn resolve(&self, cell_count: usize) -> Result<RegionMaterials, Error> {
+    pub(super) fn resolve(&self, cell_count: usize) -> Result<RegionMaterials<'_>, Error> {
         if self.materials.is_empty() {
             return Err(Error::invalid(
                 "physics.thermal.materials",
@@ -143,6 +144,7 @@ impl MultimaterialThermal {
             ));
         }
         Ok(RegionMaterials {
+            regions: &self.volume_regions,
             properties,
             cell_regions,
         })

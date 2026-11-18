@@ -8,7 +8,9 @@ pub use caekit_mesh::{
     AxisFrame, FaceRegion, GeometryRevision, LineMesh, MeshMetrics, MeshQuality, TetraMesh,
 };
 pub use caekit_numerics::{Convergence, LinearSettings, StopReason};
-pub use caekit_types::{Balance, Error, MaterialSource, Output, Quantity, SampleLocation};
+pub use caekit_types::{
+    Balance, Error, InterfaceValue, MaterialSource, Output, Quantity, SampleLocation,
+};
 pub use model::{MODEL_SCHEMA_VERSION, Model, ModelCheck, Physics, Units};
 pub use result::{Execution, RESULT_SCHEMA_VERSION, RunReport};
 

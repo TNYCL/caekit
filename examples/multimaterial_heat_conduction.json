@@ -138,6 +138,7 @@
   "outputs": [
     "solid_temperature",
     "solid_heat_flux",
-    "boundary_heat_rate"
+    "boundary_heat_rate",
+    "interface_heat_rate"
   ]
 }
