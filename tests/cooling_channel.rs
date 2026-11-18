@@ -1,9 +1,7 @@
 mod common;
 
-use std::process::Command;
-
 use caekit::physics::cooling_channel::CoolingChannel;
-use caekit::{Model, Output, Physics, Quantity, RunReport, StopReason, solve};
+use caekit::{Model, Output, Physics, Quantity, StopReason, solve};
 use common::{close, scalar};
 
 const INPUT: &[u8] = include_bytes!("../examples/cooling_channel.json");
@@ -22,17 +20,8 @@ fn continuum_outlet() -> f64 {
 }
 
 #[test]
-fn cli_solves_nonmatching_meshes_and_closes_energy_balances() {
-    let run = Command::new(env!("CARGO_BIN_EXE_caekit"))
-        .args(["run", "examples/cooling_channel.json"])
-        .output()
-        .unwrap();
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let report: RunReport = serde_json::from_slice(&run.stdout).unwrap();
+fn solves_nonmatching_meshes_and_closes_energy_balances() {
+    let report = solve(&Model::from_json(INPUT).unwrap()).unwrap();
     assert_eq!(report.stop_reason, StopReason::Converged);
     assert_eq!(report.geometry.len(), 2);
     assert_eq!(

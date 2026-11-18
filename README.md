@@ -31,6 +31,33 @@ tensors and reactions on a three-dimensional tetrahedral mesh.
 See the [model and result format](docs/model.md) and
 [source and data provenance](docs/provenance.md).
 
+## Cargo workspace
+
+The root `caekit` package exposes the versioned model, physics dispatch,
+`solve`, and run reports. Its domain solvers depend on shared lower-level
+crates. The command-line package uses the same public Rust API.
+
+| Package | Responsibility |
+| --- | --- |
+| `caekit-cli` | The `caekit` executable, argument handling, and JSON I/O |
+| `caekit-mechanics` | Axial bar and three-dimensional elastic solid solvers |
+| `caekit-fluids` | Laminar momentum, mass flow, and pressure recovery |
+| `caekit-thermal` | Wall conduction, bulk energy transport, and interface heat balance |
+| `caekit-mesh` | Meshes, geometry revisions, regions, and mesh quality |
+| `caekit-numerics` | Sparse systems, iterative solves, and convergence histories |
+| `caekit-types` | Shared physical input and result values and diagnostics |
+
+The root cooling case passes mass flow from the fluid solver into the
+thermal solver and assembles the combined report. Build domain crates by
+package name. The workspace selects the API and CLI packages by default at
+the repository root. [Cargo workspace reference](https://doc.rust-lang.org/cargo/reference/workspaces.html)
+
+```sh
+cargo test --locked --workspace
+cargo test --locked -p caekit-numerics
+cargo install --locked --path crates/caekit-cli
+```
+
 ## License
 
 Choose either the [MIT license](LICENSE-MIT) or the

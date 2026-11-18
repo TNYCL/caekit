@@ -27,6 +27,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "caekit-cli"
+version = "0.1.0"
+dependencies = [
+ "caekit",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "caekit-fluids"
 version = "0.1.0"
 dependencies = [

@@ -1,7 +1,5 @@
 mod common;
 
-use std::process::Command;
-
 use caekit::physics::elastic_solid::{ElasticSolid, SolidBoundary};
 use caekit::physics::laminar_channel::Pressure;
 use caekit::{Model, Output, Physics, Quantity, RunReport, StopReason, solve};
@@ -74,17 +72,8 @@ fn check_affine(report: &RunReport, axial_stress: f64) {
 }
 
 #[test]
-fn cli_completes_the_three_dimensional_patch_test() {
-    let run = Command::new(env!("CARGO_BIN_EXE_caekit"))
-        .args(["run", "examples/elastic_solid.json"])
-        .output()
-        .unwrap();
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let report: RunReport = serde_json::from_slice(&run.stdout).unwrap();
+fn completes_the_three_dimensional_patch_test() {
+    let report = solve(&Model::from_json(INPUT).unwrap()).unwrap();
     assert_eq!(report.meshes[0].cell_count, 6);
     let quality = report.meshes[0].quality.as_ref().unwrap();
     assert!((0.1..=1.0).contains(&quality.minimum_mean_ratio));

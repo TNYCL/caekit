@@ -1,25 +1,14 @@
 mod common;
 
-use std::process::Command;
-
 use caekit::physics::axial_bar::BarBoundary;
-use caekit::{Error, Model, Output, Physics, Quantity, RunReport, StopReason, solve};
+use caekit::{Error, Model, Output, Physics, Quantity, StopReason, solve};
 use common::{close, region};
 
 const INPUT: &[u8] = include_bytes!("../examples/axial_bar.json");
 
 #[test]
-fn cli_solves_analytic_tension_case() {
-    let run = Command::new(env!("CARGO_BIN_EXE_caekit"))
-        .args(["run", "examples/axial_bar.json"])
-        .output()
-        .unwrap();
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let report: RunReport = serde_json::from_slice(&run.stdout).unwrap();
+fn solves_analytic_tension_case() {
+    let report = solve(&Model::from_json(INPUT).unwrap()).unwrap();
 
     assert_eq!(report.stop_reason, StopReason::Converged);
     close(

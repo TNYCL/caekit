@@ -1,9 +1,7 @@
 mod common;
 
-use std::process::Command;
-
 use caekit::physics::laminar_channel::{FlowDrive, LaminarChannel, Pressure, PressureAtPort};
-use caekit::{Model, Output, Physics, Quantity, RunReport, StopReason, solve};
+use caekit::{Model, Output, Physics, Quantity, StopReason, solve};
 use common::{close, region, scalar};
 
 const INPUT: &[u8] = include_bytes!("../examples/laminar_channel.json");
@@ -38,17 +36,8 @@ fn pressure_drive(case: &mut LaminarChannel, outlet: Pressure, drop: f64) {
 }
 
 #[test]
-fn cli_solves_analytic_channel_pressure_loss_and_balances() {
-    let run = Command::new(env!("CARGO_BIN_EXE_caekit"))
-        .args(["run", "examples/laminar_channel.json"])
-        .output()
-        .unwrap();
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let report: RunReport = serde_json::from_slice(&run.stdout).unwrap();
+fn solves_analytic_channel_pressure_loss_and_balances() {
+    let report = solve(&Model::from_json(INPUT).unwrap()).unwrap();
     assert_eq!(report.stop_reason, StopReason::Converged);
     // Plane Poiseuille relation, independent of the finite-volume system.
     let analytical = 12.0 * 1.0e-3 * 2.0 * 1.0e-5 / (0.1 * 0.01_f64.powi(3));
