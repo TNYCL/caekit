@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::nonempty;
 use crate::{Error, MeshMetrics, MeshQuality};
 use caekit_numerics::norm;
+use caekit_types::error::nonempty;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -2,11 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{nonempty, positive};
 use crate::interface::overlap;
-use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::{Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
 use caekit_numerics::{Convergence, LinearSettings, StopReason, norm};
+use caekit_types::error::{nonempty, positive};
+use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
 
 use super::laminar_channel::{FlowState, LaminarChannel};
 
@@ -173,7 +173,7 @@ impl CoolingChannel {
         &self,
         settings: LinearSettings,
         outputs: &[Output],
-    ) -> Result<Solution, Error> {
+    ) -> Result<Solution<Convergence>, Error> {
         let (momentum, flow) = self.flow.compute(settings)?;
         let mut result = Solution::new(Self::METHOD, vec![momentum]);
         let Some(flow) = flow else {
@@ -194,7 +194,7 @@ impl CoolingChannel {
         energy: &EnergySystem,
         temperatures: Temperatures,
         outputs: &[Output],
-        result: &mut Solution,
+        result: &mut Solution<Convergence>,
     ) -> Result<(), Error> {
         let flux = energy.fluxes(&temperatures);
         let hot_heat: f64 = energy

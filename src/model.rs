@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::Error;
-use crate::error::nonempty;
+use crate::Output;
 use crate::mesh::{GeometryRevision, MeshMetrics};
 use crate::physics::{
     axial_bar::AxialBar, cooling_channel::CoolingChannel, elastic_solid::ElasticSolid,
     laminar_channel::LaminarChannel,
 };
-use crate::result::Output;
 use caekit_numerics::LinearSettings;
+use caekit_types::error::nonempty;
 
 pub const MODEL_SCHEMA_VERSION: u32 = 1;
 
@@ -61,21 +61,6 @@ impl Physics {
                     || CoolingChannel::THERMAL_OUTPUTS.contains(&output)
             }
         }
-    }
-}
-
-/// Identifies the origin and terms of the property values used in a model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MaterialSource {
-    pub citation: String,
-    pub usage_terms: String,
-}
-
-impl MaterialSource {
-    pub(crate) fn validate(&self, path: &str) -> Result<(), Error> {
-        nonempty(&format!("{path}.citation"), &self.citation)?;
-        nonempty(&format!("{path}.usage_terms"), &self.usage_terms)
     }
 }
 

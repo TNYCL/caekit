@@ -8,7 +8,7 @@ repository.workspace = true
 description = "Multiphysics engineering simulation"
 
 [workspace]
-members = ["crates/caekit-numerics"]
+members = ["crates/caekit-numerics", "crates/caekit-types"]
 default-members = ["."]
 resolver = "3"
 
@@ -20,12 +20,14 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/TNYCL/caekit"
 
 [workspace.dependencies]
+caekit-types = { path = "crates/caekit-types", version = "0.1.0" }
 caekit-numerics = { path = "crates/caekit-numerics", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 sha2 = "0.10"
 
 [dependencies]
+caekit-types.workspace = true
 caekit-numerics.workspace = true
 serde.workspace = true
 serde_json.workspace = true

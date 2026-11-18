@@ -1,6 +1,5 @@
 //! Versioned multiphysics models, checked reference solvers, and reproducible results.
 
-mod error;
 mod interface;
 mod mesh;
 mod model;
@@ -9,12 +8,10 @@ mod result;
 mod tetra;
 
 pub use caekit_numerics::{Convergence, LinearSettings, StopReason};
-pub use error::Error;
+pub use caekit_types::{Balance, Error, MaterialSource, Output, Quantity, SampleLocation};
 pub use mesh::{AxisFrame, GeometryRevision, LineMesh, MeshMetrics, MeshQuality};
-pub use model::{MODEL_SCHEMA_VERSION, MaterialSource, Model, ModelCheck, Physics, Units};
-pub use result::{
-    Balance, Execution, Output, Quantity, RESULT_SCHEMA_VERSION, RunReport, SampleLocation,
-};
+pub use model::{MODEL_SCHEMA_VERSION, Model, ModelCheck, Physics, Units};
+pub use result::{Execution, RESULT_SCHEMA_VERSION, RunReport};
 
 pub use tetra::{FaceRegion, TetraMesh};
 

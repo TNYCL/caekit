@@ -2,11 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{finite, nonempty, positive};
-use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::tetra::{Tet, TetraTopology, cross, dot, subtract};
 use crate::{Error, GeometryRevision, MaterialSource, MeshMetrics, TetraMesh};
-use caekit_numerics::{ConstrainedSystem, LinearSettings, StopReason, norm};
+use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason, norm};
+use caekit_types::error::{finite, nonempty, positive};
+use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
 
 use super::laminar_channel::Pressure;
 
@@ -212,7 +212,7 @@ impl ElasticSolid {
         &self,
         settings: LinearSettings,
         outputs: &[Output],
-    ) -> Result<Solution, Error> {
+    ) -> Result<Solution<Convergence>, Error> {
         let topology = self.mesh.check("physics.mesh")?;
         let prescribed = self.prescribed(&topology)?;
         let lame = Lame::from_material(&self.material)?;

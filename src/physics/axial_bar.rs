@@ -3,10 +3,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::error::{finite, nonempty, positive};
-use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::{AxisFrame, Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
-use caekit_numerics::{ConstrainedSystem, LinearSettings, StopReason};
+use caekit_numerics::{ConstrainedSystem, Convergence, LinearSettings, StopReason};
+use caekit_types::error::{finite, nonempty, positive};
+use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -116,7 +116,7 @@ impl AxialBar {
         Ok(mesh)
     }
 
-    pub(crate) fn solve(&self, settings: LinearSettings) -> Result<Solution, Error> {
+    pub(crate) fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
         let vertices = &self.mesh.vertices_m;
         let mut prescribed = vec![None; vertices.len()];
         let mut loads = vec![0.0; vertices.len()];

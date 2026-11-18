@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::Error;
-use crate::error::{nonempty, positive};
+use caekit_types::error::{nonempty, positive};
 
 /// Identity of the geometry on which the mesh and boundary assignments are based.
 #[derive(Debug, Clone, Serialize, Deserialize)]

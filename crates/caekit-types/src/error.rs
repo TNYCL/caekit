@@ -11,7 +11,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub(crate) fn invalid(path: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn invalid(path: impl Into<String>, message: impl Into<String>) -> Self {
         Self::InvalidModel {
             path: path.into(),
             message: message.into(),
@@ -58,7 +58,7 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-pub(crate) fn finite(path: &str, value: f64) -> Result<(), Error> {
+pub fn finite(path: &str, value: f64) -> Result<(), Error> {
     if value.is_finite() {
         Ok(())
     } else {
@@ -66,7 +66,7 @@ pub(crate) fn finite(path: &str, value: f64) -> Result<(), Error> {
     }
 }
 
-pub(crate) fn positive(path: &str, value: f64) -> Result<(), Error> {
+pub fn positive(path: &str, value: f64) -> Result<(), Error> {
     if value.is_finite() && value > 0.0 {
         Ok(())
     } else {
@@ -74,7 +74,7 @@ pub(crate) fn positive(path: &str, value: f64) -> Result<(), Error> {
     }
 }
 
-pub(crate) fn nonempty(path: &str, value: &str) -> Result<(), Error> {
+pub fn nonempty(path: &str, value: &str) -> Result<(), Error> {
     if value.trim().is_empty() {
         Err(Error::invalid(path, "must be nonempty"))
     } else {

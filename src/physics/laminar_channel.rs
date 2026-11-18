@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{nonempty, positive};
-use crate::result::{Balance, Output, Quantity, SampleLocation, Solution};
 use crate::{AxisFrame, Error, GeometryRevision, LineMesh, MaterialSource, MeshMetrics};
 use caekit_numerics::{Convergence, LinearSettings, SparseAssembly, StopReason};
+use caekit_types::error::{nonempty, positive};
+use caekit_types::{Balance, Output, Quantity, SampleLocation, Solution};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,59 +109,7 @@ pub struct PressureAtPort {
     pub pressure: Pressure,
 }
 
-/// Absolute pressure or a gauge reading with an explicitly specified absolute reference.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(tag = "reference", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Pressure {
-    Absolute {
-        value_pa: f64,
-    },
-    Gauge {
-        value_pa: f64,
-        reference_absolute_pa: f64,
-    },
-}
-
-impl Pressure {
-    fn parts(self) -> (f64, f64) {
-        match self {
-            Self::Absolute { value_pa } => (0.0, value_pa),
-            Self::Gauge {
-                value_pa,
-                reference_absolute_pa,
-            } => (reference_absolute_pa, value_pa),
-        }
-    }
-
-    fn absolute_pa(self) -> f64 {
-        let (reference, value) = self.parts();
-        reference + value
-    }
-
-    pub(crate) fn difference_pa(self, other: Self) -> f64 {
-        let (reference, value) = self.parts();
-        let (other_reference, other_value) = other.parts();
-        if reference == other_reference {
-            value - other_value
-        } else {
-            self.absolute_pa() - other.absolute_pa()
-        }
-    }
-
-    pub(crate) fn validate(self, path: &str) -> Result<(), Error> {
-        if let Self::Gauge {
-            reference_absolute_pa,
-            ..
-        } = self
-        {
-            positive(
-                &format!("{path}.reference_absolute_pa"),
-                reference_absolute_pa,
-            )?;
-        }
-        positive(&format!("{path}.absolute_pressure_pa"), self.absolute_pa())
-    }
-}
+pub use caekit_types::Pressure;
 
 impl PressureAtPort {
     fn validate(&self, path: &str, region: &str) -> Result<(), Error> {
@@ -263,7 +211,7 @@ impl LaminarChannel {
         Ok(metrics)
     }
 
-    pub(crate) fn solve(&self, settings: LinearSettings) -> Result<Solution, Error> {
+    pub(crate) fn solve(&self, settings: LinearSettings) -> Result<Solution<Convergence>, Error> {
         let (convergence, state) = self.compute(settings)?;
         let mut result = Solution::new(Self::METHOD, vec![convergence]);
         if let Some(state) = state {
@@ -384,7 +332,11 @@ impl LaminarChannel {
         Ok((convergence, Some(state)))
     }
 
-    pub(crate) fn add_outputs(&self, state: FlowState, result: &mut Solution) -> Result<(), Error> {
+    pub(crate) fn add_outputs(
+        &self,
+        state: FlowState,
+        result: &mut Solution<Convergence>,
+    ) -> Result<(), Error> {
         let width = self.geometry.width_m;
         let gap = self.geometry.gap_m;
         let inv_kinematic_viscosity =
