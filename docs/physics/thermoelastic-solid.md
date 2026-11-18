@@ -62,6 +62,19 @@ Positive reaction components act on the solid along the global coordinate
 directions. Force and moment balances use external mechanical loads and
 these support reactions, with moments taken about the first mesh vertex.
 
+When the displacement supports admit a uniform free expansion about a
+common origin, the solver removes that affine displacement before assembly
+and restores it in the reported displacements. Small external loads can
+then set the residual scale independently of a large temperature rise.
+
+For each externally loaded axis, a coupled run also checks the balance
+between the recovered support reactions and applied forces. The global
+allowance is `sqrt(node_count) * max(abs_tol, rel_tol * ||applied_axis||₂)`
+plus a binary64 summation allowance. Failure withholds physical fields and
+returns a `numerical_breakdown` diagnostic with the imbalance, tolerance
+and worst tetrahedral mean ratio. The trace still gives the algebraic
+residual. Highly elongated elements can limit its attainable precision.
+
 The stored elastic energy is `½ ∫ ε_el:C:ε_el dV`. For linear temperature
 inside a cell, the squared strain can vary quadratically. CAEKit integrates
 the mean elastic-strain contribution plus the exact contribution of the

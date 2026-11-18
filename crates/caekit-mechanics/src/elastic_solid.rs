@@ -147,6 +147,35 @@ pub struct PreparedElasticSolid<'a> {
 struct ThermalStrain {
     nodal: Vec<f64>,
     three_bulk_modulus_pa: f64,
+    free_expansion: Option<FreeExpansion>,
+}
+
+// For sliding supports on coordinate planes, a uniform expansion about the
+// intersection of the planes has zero prescribed displacement and zero stress.
+struct FreeExpansion {
+    origin: [f64; 3],
+    strain: f64,
+}
+
+impl FreeExpansion {
+    fn compatible(vertices: &[[f64; 3]], prescribed: &[Option<f64>], strain: f64) -> Option<Self> {
+        if strain == 0.0 {
+            return None;
+        }
+        let mut origin = [None; 3];
+        for (point, fixed) in vertices.iter().zip(prescribed.chunks_exact(3)) {
+            for axis in 0..3 {
+                if fixed[axis].is_some() && *origin[axis].get_or_insert(point[axis]) != point[axis]
+                {
+                    return None;
+                }
+            }
+        }
+        Some(Self {
+            origin: origin.map(|x| x.unwrap_or(0.0)),
+            strain,
+        })
+    }
 }
 
 impl ThermalStrain {
@@ -377,7 +406,7 @@ impl PreparedElasticSolid<'_> {
         }
 
         let datum_change = datum_k - expansion.reference_temperature_k;
-        let nodal: Vec<_> = offsets_k
+        let mut nodal: Vec<_> = offsets_k
             .iter()
             .map(|offset| expansion.linear_expansion_coefficient_per_k * (datum_change + offset))
             .collect();
@@ -390,12 +419,21 @@ impl PreparedElasticSolid<'_> {
             return self.solve(settings, outputs, None);
         }
 
+        let free_expansion =
+            FreeExpansion::compatible(&self.mesh.vertices_m, &self.prescribed, nodal[0]);
+        if let Some(free) = &free_expansion {
+            for strain in &mut nodal {
+                *strain -= free.strain;
+            }
+        }
+
         let material = self.inputs.material;
         let three_bulk_modulus_pa =
             material.young_modulus_pa / (1.0 - 2.0 * material.poisson_ratio);
         let thermal = ThermalStrain {
             nodal,
             three_bulk_modulus_pa,
+            free_expansion,
         };
         self.solve(settings, outputs, Some(&thermal))
     }
@@ -436,6 +474,14 @@ impl PreparedElasticSolid<'_> {
         let stop_reason = convergence.stop_reason;
         let mut result = Solution::new(ElasticSolid::METHOD, vec![convergence]);
         if stop_reason != StopReason::Converged {
+            if thermal.is_some() {
+                let trace = &mut result.convergence[0];
+                let reason = trace
+                    .diagnostic
+                    .as_deref()
+                    .unwrap_or("Mechanical equilibrium did not converge.");
+                trace.diagnostic = Some(self.mesh_diagnostic(reason));
+            }
             return Ok(result);
         }
 
@@ -494,13 +540,25 @@ impl PreparedElasticSolid<'_> {
                 })
             })
             .collect();
-        result.balances = mechanical_balances(vertices, &loads, &reactions)?;
+        let (balances, failure) =
+            mechanical_balances(vertices, &loads, &reactions, thermal.map(|_| settings))?;
+        if let Some(reason) = failure {
+            let trace = &mut result.convergence[0];
+            trace.stop_reason = StopReason::NumericalBreakdown;
+            trace.diagnostic = Some(self.mesh_diagnostic(&reason));
+            return Ok(result);
+        }
+        result.balances = balances;
         result
             .quantities
             .insert(Output::ElasticEnergy, Quantity::scalar("J", energy));
         if outputs.contains(&Output::DisplacementVector) {
-            for (node, fixed) in u.iter_mut().zip(prescribed.chunks_exact(3)) {
+            for ((node, fixed), point) in u.iter_mut().zip(prescribed.chunks_exact(3)).zip(vertices)
+            {
                 for axis in 0..3 {
+                    if let Some(free) = thermal.and_then(|t| t.free_expansion.as_ref()) {
+                        node[axis] += free.strain * (point[axis] - free.origin[axis]);
+                    }
                     node[axis] = fixed[axis].unwrap_or(node[axis] + translation[axis]);
                 }
             }
@@ -548,6 +606,19 @@ impl PreparedElasticSolid<'_> {
             );
         }
         Ok(result)
+    }
+
+    fn mesh_diagnostic(&self, reason: &str) -> String {
+        let quality = self
+            .topology
+            .metrics
+            .quality
+            .as_ref()
+            .expect("checked tetrahedral quality");
+        format!(
+            "{reason} Minimum tetrahedral mean ratio {:.6e} at cell {}.",
+            quality.minimum_mean_ratio, quality.cell_index
+        )
     }
 
     fn add_thermal_loads(&self, loads: &[f64], thermal: &ThermalStrain) -> Result<Vec<f64>, Error> {
@@ -673,7 +744,8 @@ fn mechanical_balances(
     vertices: &[[f64; 3]],
     loads: &[f64],
     reactions: &[[f64; 3]],
-) -> Result<Vec<Balance>, Error> {
+    coupled_settings: Option<LinearSettings>,
+) -> Result<(Vec<Balance>, Option<String>), Error> {
     let mut force = [[0.0; 3]; 2];
     let mut moment = [[0.0; 3]; 2];
     let origin = vertices[0];
@@ -694,16 +766,47 @@ fn mechanical_balances(
     }
     let mut balances = Vec::new();
     for (i, axis) in ["x", "y", "z"].into_iter().enumerate() {
-        balances.push(Balance::new(
+        let balance = Balance::new(
             &format!("solid_force_{axis}"),
             "N",
             [("applied", force[0][i]), ("reaction", force[1][i])],
-        )?);
+        )?;
+        if let Some(settings) = coupled_settings {
+            let applied = loads.iter().skip(i).step_by(3);
+            let scale = applied.clone().fold(0.0_f64, |norm, f| norm.hypot(*f));
+            if scale > 0.0 {
+                // A sum of n residual components is bounded by sqrt(n) times
+                // their L2 norm. Thermal equivalent loads are internal forces.
+                let n = vertices.len() as f64;
+                let sum_abs = applied.map(|f| f.abs()).sum::<f64>()
+                    + reactions.iter().map(|r| r[i].abs()).sum::<f64>();
+                let limit = n.sqrt()
+                    * settings
+                        .absolute_residual_tolerance
+                        .max(settings.relative_residual_tolerance * scale)
+                    + (n + 1.0) * f64::EPSILON * sum_abs;
+                if !limit.is_finite() {
+                    return Err(Error::NonFiniteResult {
+                        quantity: format!("solid {axis}-force balance tolerance"),
+                    });
+                }
+                if balance.imbalance.abs() > limit {
+                    return Ok((
+                        Vec::new(),
+                        Some(format!(
+                            "Recovered {axis}-force imbalance {:.6e} N exceeds the external-load balance tolerance {limit:.6e} N (applied {:.6e} N, reaction {:.6e} N).",
+                            balance.imbalance, force[0][i], force[1][i]
+                        )),
+                    ));
+                }
+            }
+        }
+        balances.push(balance);
         balances.push(Balance::new(
             &format!("solid_moment_{axis}"),
             "N m",
             [("applied", moment[0][i]), ("reaction", moment[1][i])],
         )?);
     }
-    Ok(balances)
+    Ok((balances, None))
 }

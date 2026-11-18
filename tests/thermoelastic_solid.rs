@@ -122,6 +122,86 @@ fn direct_mechanics_api_checks_absolute_temperature_before_any_shortcut() {
 }
 
 #[test]
+fn small_axial_load_is_resolved_after_removing_uniform_free_expansion() {
+    let mut model = example();
+    let case = coupled_case(&mut model);
+    case.mechanical.boundary_conditions.pop();
+    case.mechanical
+        .boundary_conditions
+        .push(SolidBoundary::Traction {
+            region: "x1".into(),
+            components_pa: [1.0, 0.0, 0.0],
+        });
+    let report = solve(&model).unwrap();
+    assert_converged(&report);
+    for tensor in stresses(&report) {
+        close(tensor[0][0], 1.0, 1e-8);
+    }
+
+    // The fixture becomes a 1 m long bar with a 0.1 mm square section.
+    for point in &mut coupled_case(&mut model).mesh.vertices_m {
+        point[1] *= 0.01;
+        point[2] *= 0.01;
+    }
+    let report = solve(&model).unwrap();
+    if report.stop_reason == StopReason::Converged {
+        for tensor in stresses(&report) {
+            close(tensor[0][0], 1.0, 1e-7);
+        }
+    } else {
+        assert!(report.quantities.is_empty());
+        assert!(
+            report.convergence[1]
+                .diagnostic
+                .as_ref()
+                .unwrap()
+                .contains("mean ratio")
+        );
+    }
+    model.linear_solver.relative_residual_tolerance = 1e-7;
+    let report = solve(&model).unwrap();
+    assert_converged(&report);
+    for tensor in stresses(&report) {
+        close(tensor[0][0], 1.0, 1e-6);
+    }
+    let balance = report
+        .balances
+        .iter()
+        .find(|b| b.name == "solid_force_x")
+        .unwrap();
+    close(balance.terms["reaction"], -1e-8, 1e-14);
+}
+
+#[test]
+fn coupled_solve_checks_reactions_at_the_scale_of_the_external_load() {
+    let mut model = example();
+    let case = coupled_case(&mut model);
+    case.mechanical.boundary_conditions.pop();
+    case.mechanical
+        .boundary_conditions
+        .push(displacement("y1", [None, Some(0.0), None]));
+    case.mechanical
+        .boundary_conditions
+        .push(SolidBoundary::Traction {
+            region: "x1".into(),
+            components_pa: [1.0, 0.0, 0.0],
+        });
+    for point in &mut case.mesh.vertices_m {
+        point[1] *= 0.01;
+        point[2] *= 0.01;
+    }
+    let report = solve(&model).unwrap();
+    let trace = &report.convergence[1];
+    assert_eq!(trace.stop_reason, StopReason::NumericalBreakdown);
+    assert!(trace.final_true_residual_l2.unwrap() <= trace.residual_threshold.unwrap());
+    let diagnostic = trace.diagnostic.as_ref().unwrap();
+    assert!(
+        diagnostic.contains("external-load balance tolerance") && diagnostic.contains("mean ratio")
+    );
+    assert!(report.quantities.is_empty() && report.balances.is_empty());
+}
+
+#[test]
 fn free_expansion_uses_a_temperature_field_even_without_thermal_outputs() {
     let mut model = example();
     coupled_case(&mut model)
